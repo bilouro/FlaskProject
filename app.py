@@ -42,7 +42,7 @@ def create_app(config_class=DevConfig) -> Flask:
                 "description": "Simple Books API example with Flask",
             },
             "servers": [
-                {"url": "http://127.0.0.1:5000"}
+                {"url": "http://127.0.0.1:5001"}
             ],
             "paths": {
                 "/health": {
@@ -332,4 +332,4 @@ app = create_app()
 
 if __name__ == "__main__":
     # For development only. In production, use a proper WSGI server (e.g., gunicorn).
-    app.run(host="0.0.0.0", port=5000, debug=app.config.get("DEBUG", False))
+    app.run(host="0.0.0.0", port=5001, debug=app.config.get("DEBUG", False))

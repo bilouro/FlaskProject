@@ -280,7 +280,7 @@ Key points:
 
 - `create_app(config_class=DevConfig)` in `app.py` constructs and configures the Flask app.
 - A global `app` instance is created at the bottom of `app.py` for convenience.
-- When you run `python app.py`, Flask’s built-in development server starts on port 5000.
+- When you run `python app.py`, Flask’s built-in development server starts on port 5001.
 
 With that in mind, and assuming your virtual environment is active and DB is configured, you can run:
 
@@ -289,7 +289,7 @@ With that in mind, and assuming your virtual environment is active and DB is con
 
 By default, the app will listen on:
 
-    http://127.0.0.1:5000
+    http://127.0.0.1:5001
 
 Useful endpoints to verify that the app is running correctly:
 
@@ -325,13 +325,13 @@ General rules:
 
 The examples below use `curl` because it is ubiquitous and easy to script. You can translate these into Postman collections, HTTPie commands, or any other HTTP client.
 
-Assume the app is running at `http://127.0.0.1:5000`.
+Assume the app is running at `http://127.0.0.1:5001`.
 
 ### Health Check
 
 The health endpoint confirms two things: the app is running and basic DB connectivity works. This is commonly used for monitoring and readiness/liveness probes.
 
-    curl -i http://127.0.0.1:5000/health
+    curl -i http://127.0.0.1:5001/health
 
 A successful response looks like:
 
@@ -346,7 +346,7 @@ If the database cannot be reached, `"database"` will be `"error"`.
 
 Listing books is a simple way to verify that the DB is populated and that the repository layer is functioning.
 
-    curl -i http://127.0.0.1:5000/books/
+    curl -i http://127.0.0.1:5001/books/
 
 Example response (truncated):
 
@@ -364,7 +364,7 @@ Example response (truncated):
 
 Fetching a book by ID allows you to check a specific record and validate that individual retrieval works as expected.
 
-    curl -i http://127.0.0.1:5000/books/1
+    curl -i http://127.0.0.1:5001/books/1
 
 If the book exists, you get a JSON object. If not, you receive a 404 error:
 
@@ -378,7 +378,7 @@ If the book exists, you get a JSON object. If not, you receive a 404 error:
 
 Creating books demonstrates how request validation works and how new records are persisted. All fields are required here.
 
-    curl -i -X POST http://127.0.0.1:5000/books/ \
+    curl -i -X POST http://127.0.0.1:5001/books/ \
       -H "Content-Type: application/json" \
       -d '{
         "title": "Domain-Driven Design",
@@ -398,7 +398,7 @@ If you omit a required field or use an incorrect type, you will receive a 400 er
 
 Using PUT shows how to **replace** an existing resource entirely. This requires sending all fields, not just the ones you want to change.
 
-    curl -i -X PUT http://127.0.0.1:5000/books/1 \
+    curl -i -X PUT http://127.0.0.1:5001/books/1 \
       -H "Content-Type: application/json" \
       -d '{
         "title": "Domain-Driven Design (Updated Edition)",
@@ -419,7 +419,7 @@ If the target book does not exist, the response uses the same 404 error shape as
 
 `PATCH` is ideal when you only want to adjust a subset of fields (for example, correcting a typo in the title). At least one valid field must be provided.
 
-    curl -i -X PATCH http://127.0.0.1:5000/books/1 \
+    curl -i -X PATCH http://127.0.0.1:5001/books/1 \
       -H "Content-Type: application/json" \
       -d '{
         "year": 2004
@@ -437,7 +437,7 @@ If you send an empty JSON object (`{}`), the API explicitly rejects it with:
 
 Deletion completes the CRUD lifecycle and is often used in cleanup or administrative flows. The endpoint returns `204 No Content` to indicate success without returning a body.
 
-    curl -i -X DELETE http://127.0.0.1:5000/books/1
+    curl -i -X DELETE http://127.0.0.1:5001/books/1
 
 If the specified book does not exist, you receive a 404 error with `"Book not found"`.
 
@@ -447,11 +447,11 @@ The project also embeds its own OpenAPI schema and Swagger UI to help you and ot
 
 - To obtain the raw schema as JSON (useful for tooling or generating clients):
 
-      curl -i http://127.0.0.1:5000/swagger.json
+      curl -i http://127.0.0.1:5001/swagger.json
 
 - To open the interactive Docs UI in a browser, navigate to:
 
-      http://127.0.0.1:5000/docs
+      http://127.0.0.1:5001/docs
 
 Swagger UI is loaded from a CDN and points to `/swagger.json` as the API definition.
 
