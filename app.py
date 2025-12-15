@@ -1,21 +1,44 @@
+import os
+from typing import Dict, Any, List, Optional
+
+import psycopg2
+import psycopg2.extras
 from flask import Flask, jsonify, request, abort
-from typing import Dict, Any
 
 app = Flask(__name__)
 
-# Simple "Book" structure (no database): stored in memory
-# {
-#   "id": int,
-#   "title": str,
-#   "author": str,
-#   "year": int,
-#   "isbn": str
-# }
-BOOKS: Dict[int, Dict[str, Any]] = {
-    1: {"id": 1, "title": "Clean Code", "author": "Robert C. Martin", "year": 2008, "isbn": "9780132350884"},
-    2: {"id": 2, "title": "The Pragmatic Programmer", "author": "Andrew Hunt", "year": 1999, "isbn": "9780201616224"},
+# -----------------------------------------------------------------------------
+# Database configuration
+# -----------------------------------------------------------------------------
+# In a real project, prefer environment variables instead of hardcoding.
+DB_CONFIG = {
+    "host": os.getenv("DB_HOST", "127.0.0.1"),
+    "port": int(os.getenv("DB_PORT", "5432")),
+    "dbname": os.getenv("DB_NAME", "app_db"),
+    "user": os.getenv("DB_USER", "app_user"),
+    "password": os.getenv("DB_PASSWORD", "bsd@0030"),
 }
-NEXT_ID = 3
+
+
+def get_connection():
+    """
+    Open a new PostgreSQL connection.
+
+    Each handler uses a short-lived connection in a context manager.
+    """
+    return psycopg2.connect(**DB_CONFIG)
+
+
+def row_to_book(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a DB row to the book JSON structure used by the API."""
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "author": row["author"],
+        "year": row["year"],
+        "isbn": row["isbn"],
+    }
+
 
 ALLOWED_FIELDS = {"title", "author", "year", "isbn"}
 
@@ -39,7 +62,7 @@ def _validate_fields(data: Dict[str, Any], required: bool) -> Dict[str, Any]:
         if missing:
             abort(400, description=f"Missing required field(s): {missing}")
 
-    # Basic type checks (keep it simple)
+    # Basic type checks
     if "year" in data and not isinstance(data["year"], int):
         abort(400, description="Field 'year' must be an integer")
     for s in ("title", "author", "isbn"):
@@ -49,80 +72,207 @@ def _validate_fields(data: Dict[str, Any], required: bool) -> Dict[str, Any]:
     return data
 
 
+# -----------------------------------------------------------------------------
+# Health
+# -----------------------------------------------------------------------------
 @app.get("/health")
 def health():
-    return jsonify({"status": "ok"})
+    # Optional: try a simple DB check
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+        db_status = "ok"
+    except Exception:
+        db_status = "error"
+
+    return jsonify({"status": "ok", "database": db_status})
 
 
+# -----------------------------------------------------------------------------
+# Books endpoints (PostgreSQL-backed)
+# -----------------------------------------------------------------------------
 @app.get("/books")
 def list_books():
-    return jsonify(list(BOOKS.values()))
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, title, author, year, isbn
+                FROM books
+                ORDER BY id
+                """
+            )
+            rows: List[Dict[str, Any]] = cur.fetchall()
+    books = [row_to_book(row) for row in rows]
+    return jsonify(books)
 
 
 @app.get("/books/<int:book_id>")
 def get_book(book_id: int):
-    book = BOOKS.get(book_id)
-    if not book:
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, title, author, year, isbn
+                FROM books
+                WHERE id = %s
+                """,
+                (book_id,),
+            )
+            row: Optional[Dict[str, Any]] = cur.fetchone()
+
+    if not row:
         abort(404, description="Book not found")
-    return jsonify(book)
+
+    return jsonify(row_to_book(row))
 
 
 @app.post("/books")
 def create_book():
-    global NEXT_ID
     data = _require_json_object()
     data = _validate_fields(data, required=True)
 
-    book_id = NEXT_ID
-    NEXT_ID += 1
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                INSERT INTO books (title, author, year, isbn)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id, title, author, year, isbn
+                """,
+                (
+                    data["title"],
+                    data["author"],
+                    data["year"],
+                    data["isbn"],
+                ),
+            )
+            row = cur.fetchone()
+        conn.commit()
 
-    book = {"id": book_id, **data}
-    BOOKS[book_id] = book
-
-    return jsonify(book), 201
+    return jsonify(row_to_book(row)), 201
 
 
 @app.put("/books/<int:book_id>")
 def replace_book(book_id: int):
-    if book_id not in BOOKS:
-        abort(404, description="Book not found")
-
     data = _require_json_object()
     data = _validate_fields(data, required=True)
 
-    BOOKS[book_id] = {"id": book_id, **data}
-    return jsonify(BOOKS[book_id])
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                UPDATE books
+                SET title = %s,
+                    author = %s,
+                    year = %s,
+                    isbn = %s
+                WHERE id = %s
+                RETURNING id, title, author, year, isbn
+                """,
+                (
+                    data["title"],
+                    data["author"],
+                    data["year"],
+                    data["isbn"],
+                    book_id,
+                ),
+            )
+            row = cur.fetchone()
+        conn.commit()
+
+    if not row:
+        abort(404, description="Book not found")
+
+    return jsonify(row_to_book(row))
 
 
 @app.patch("/books/<int:book_id>")
 def update_book(book_id: int):
-    book = BOOKS.get(book_id)
-    if not book:
-        abort(404, description="Book not found")
-
     data = _require_json_object()
     data = _validate_fields(data, required=False)
 
-    book.update(data)
-    return jsonify(book)
+    if not data:
+        abort(400, description="No fields to update")
+
+    # Dynamically build SET clause
+    fields = []
+    values: List[Any] = []
+    for key in sorted(data.keys()):
+        fields.append(f"{key} = %s")
+        values.append(data[key])
+
+    values.append(book_id)
+
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""
+                UPDATE books
+                SET {", ".join(fields)}
+                WHERE id = %s
+                RETURNING id, title, author, year, isbn
+                """,
+                tuple(values),
+            )
+            row = cur.fetchone()
+        conn.commit()
+
+    if not row:
+        abort(404, description="Book not found")
+
+    return jsonify(row_to_book(row))
 
 
 @app.delete("/books/<int:book_id>")
 def delete_book(book_id: int):
-    if book_id not in BOOKS:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM books
+                WHERE id = %s
+                RETURNING id
+                """,
+                (book_id,),
+            )
+            deleted = cur.fetchone()
+        conn.commit()
+
+    if not deleted:
         abort(404, description="Book not found")
 
-    del BOOKS[book_id]
     return "", 204
 
 
+# -----------------------------------------------------------------------------
+# Error handlers
+# -----------------------------------------------------------------------------
 @app.errorhandler(400)
 @app.errorhandler(404)
 @app.errorhandler(415)
 def handle_error(err):
-    # Return JSON errors (simple microservice-friendly style)
     return jsonify({"error": err.name, "message": err.description}), err.code
 
 
+@app.errorhandler(500)
+def handle_internal_error(err):
+    return (
+        jsonify(
+            {
+                "error": "Internal Server Error",
+                "message": "An unexpected error occurred.",
+            }
+        ),
+        500,
+    )
+
+
+# -----------------------------------------------------------------------------
+# Entry point
+# -----------------------------------------------------------------------------
 if __name__ == "__main__":
+    # For development only. In production, use a proper WSGI server.
     app.run(host="0.0.0.0", port=5000, debug=True)
