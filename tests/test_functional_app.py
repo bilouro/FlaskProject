@@ -24,7 +24,8 @@ class FunctionalHttpTestCase(unittest.TestCase):
 
     def test_full_book_crud_flow(self):
         # 1) List current books
-        resp = requests.get(f"{BASE_URL}/books", timeout=5)
+        # Use trailing slash to avoid 308 redirect
+        resp = requests.get(f"{BASE_URL}/books/", timeout=5)
         self.assertEqual(resp.status_code, 200)
         initial_books = resp.json()
         initial_count = len(initial_books)
@@ -37,7 +38,7 @@ class FunctionalHttpTestCase(unittest.TestCase):
             "isbn": "FUNC-123456",
         }
         resp = requests.post(
-            f"{BASE_URL}/books",
+            f"{BASE_URL}/books/",  # trailing slash
             data=json.dumps(new_book),
             headers={"Content-Type": "application/json"},
             timeout=5,
@@ -94,7 +95,7 @@ class FunctionalHttpTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 404)
 
         # 8) List again and check count is back to original
-        resp = requests.get(f"{BASE_URL}/books", timeout=5)
+        resp = requests.get(f"{BASE_URL}/books/", timeout=5)
         self.assertEqual(resp.status_code, 200)
         final_books = resp.json()
         self.assertEqual(len(final_books), initial_count)

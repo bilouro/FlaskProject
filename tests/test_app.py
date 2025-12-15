@@ -1,15 +1,39 @@
-import unittest
 import json
+import unittest
 
-from app import app, get_connection  # import Flask app and DB connection helper
+from app import create_app
+from config import TestConfig
+from db import get_connection
 
 
 class BookApiTestCase(unittest.TestCase):
-    def setUp(self):
-        # Create a test client for the application
-        self.app = app.test_client()
+    """
+    API-level tests using Flask's test client (no real HTTP, but full routing, JSON, etc.).
+    Tests hit the real PostgreSQL database configured for the app.
+    """
 
-        # Ensure a known state of the database before each test
+    @classmethod
+    def setUpClass(cls):
+        """
+        Create a Flask app instance configured for tests
+        and a shared test client.
+        """
+        cls.app = create_app(TestConfig)
+        cls.app_context = cls.app.app_context()
+        cls.app_context.push()
+        cls.client = cls.app.test_client()
+
+    @classmethod
+    def tearDownClass(cls):
+        """
+        Clean up the application context after all tests.
+        """
+        cls.app_context.pop()
+
+    def setUp(self):
+        """
+        Ensure a known state for the database before each test.
+        """
         with get_connection() as conn:
             with conn.cursor() as cur:
                 # Clear table and reset ids (dev/test friendly)
@@ -32,35 +56,40 @@ class BookApiTestCase(unittest.TestCase):
 
     # ---------- GET /health ----------
     def test_health(self):
-        resp = self.app.get("/health")
+        resp = self.client.get("/health")
         self.assertEqual(resp.status_code, 200)
+
         data = resp.get_json()
-        self.assertEqual(data["status"], "ok")
-        # Database should also report "ok" when reachable
+        self.assertIsInstance(data, dict)
+        self.assertEqual(data.get("status"), "ok")
         self.assertIn("database", data)
 
-    # ---------- GET /books ----------
+    # ---------- GET /books/ ----------
     def test_list_books(self):
-        resp = self.app.get("/books")
+        # NOTE: use "/books/" (with trailing slash) to avoid 308 redirect
+        resp = self.client.get("/books/")
         self.assertEqual(resp.status_code, 200)
+
         data = resp.get_json()
+        self.assertIsInstance(data, list)
         self.assertEqual(len(data), 2)
         self.assertEqual(data[0]["title"], "Book 1")
         self.assertEqual(data[1]["title"], "Book 2")
 
     # ---------- GET /books/<id> ----------
     def test_get_book_success(self):
-        resp = self.app.get("/books/1")
+        resp = self.client.get("/books/1")
         self.assertEqual(resp.status_code, 200)
+
         data = resp.get_json()
         self.assertEqual(data["id"], 1)
         self.assertEqual(data["title"], "Book 1")
 
     def test_get_book_not_found(self):
-        resp = self.app.get("/books/999")
+        resp = self.client.get("/books/999")
         self.assertEqual(resp.status_code, 404)
 
-    # ---------- POST /books ----------
+    # ---------- POST /books/ ----------
     def test_create_book_success(self):
         new_book = {
             "title": "New Book",
@@ -68,12 +97,14 @@ class BookApiTestCase(unittest.TestCase):
             "year": 2023,
             "isbn": "333",
         }
-        resp = self.app.post(
-            "/books",
+        # NOTE: use "/books/" to avoid 308 redirect
+        resp = self.client.post(
+            "/books/",
             data=json.dumps(new_book),
             content_type="application/json",
         )
         self.assertEqual(resp.status_code, 201)
+
         data = resp.get_json()
         self.assertIn("id", data)
         self.assertEqual(data["title"], "New Book")
@@ -87,14 +118,14 @@ class BookApiTestCase(unittest.TestCase):
 
     def test_create_book_missing_field(self):
         # Missing the "author" field
-        new_book = {
+        invalid_book = {
             "title": "Invalid Book",
             "year": 2023,
             "isbn": "999",
         }
-        resp = self.app.post(
-            "/books",
-            data=json.dumps(new_book),
+        resp = self.client.post(
+            "/books/",
+            data=json.dumps(invalid_book),
             content_type="application/json",
         )
         self.assertEqual(resp.status_code, 400)
@@ -107,14 +138,16 @@ class BookApiTestCase(unittest.TestCase):
             "year": 2010,
             "isbn": "111-updated",
         }
-        resp = self.app.put(
+        resp = self.client.put(
             "/books/1",
             data=json.dumps(payload),
             content_type="application/json",
         )
         self.assertEqual(resp.status_code, 200)
+
         data = resp.get_json()
         self.assertEqual(data["title"], "Updated Book 1")
+        self.assertEqual(data["isbn"], "111-updated")
 
     def test_replace_book_not_found(self):
         payload = {
@@ -123,7 +156,7 @@ class BookApiTestCase(unittest.TestCase):
             "year": 2000,
             "isbn": "000",
         }
-        resp = self.app.put(
+        resp = self.client.put(
             "/books/999",
             data=json.dumps(payload),
             content_type="application/json",
@@ -133,18 +166,19 @@ class BookApiTestCase(unittest.TestCase):
     # ---------- PATCH /books/<id> ----------
     def test_update_book_success(self):
         payload = {"year": 2020}
-        resp = self.app.patch(
+        resp = self.client.patch(
             "/books/1",
             data=json.dumps(payload),
             content_type="application/json",
         )
         self.assertEqual(resp.status_code, 200)
+
         data = resp.get_json()
         self.assertEqual(data["year"], 2020)
 
     def test_update_book_not_found(self):
         payload = {"year": 2020}
-        resp = self.app.patch(
+        resp = self.client.patch(
             "/books/999",
             data=json.dumps(payload),
             content_type="application/json",
@@ -153,7 +187,7 @@ class BookApiTestCase(unittest.TestCase):
 
     # ---------- DELETE /books/<id> ----------
     def test_delete_book_success(self):
-        resp = self.app.delete("/books/1")
+        resp = self.client.delete("/books/1")
         self.assertEqual(resp.status_code, 204)
 
         # Ensure it was removed from the database
@@ -164,7 +198,7 @@ class BookApiTestCase(unittest.TestCase):
         self.assertEqual(count, 0)
 
     def test_delete_book_not_found(self):
-        resp = self.app.delete("/books/999")
+        resp = self.client.delete("/books/999")
         self.assertEqual(resp.status_code, 404)
 
 
