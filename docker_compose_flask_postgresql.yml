@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  # Serviço do banco de dados PostgreSQL
+  db:
+    image: postgres:13
+    container_name: flask_app_db
+    environment:
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: bsd0030
+      POSTGRES_DB: app_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Serviço da aplicação Flask
+  web:
+    build: .
+    container_name: flask_app
+    environment:
+      APP_DB_HOST: db
+      APP_DB_PORT: 5432
+      APP_DB_NAME: app_db
+      APP_DB_USER: app_user
+      APP_DB_PASSWORD: bsd0030
+      FLASK_ENV: development
+    ports:
+      - "5000:5000"
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+    command: python app.py
+
+volumes:
+  postgres_data:
