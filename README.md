@@ -524,17 +524,7 @@ For code style, try to:
 
 ## License
 
-Understanding the license is essential before using the project in your own stack or contributing to it. The recommended choice for a template like this is the **MIT License**, because it is:
-
-- **Permissive** – allows almost unrestricted use, modification, and distribution.
-- **Simple** – short and easy to read.
-- **Widely used** – compatible with many other open source licenses.
-
-A typical notice in this context would be:
-
-    This project is licensed under the MIT License. See the LICENSE file for details.
-
-If you are adapting this project for an environment that requires a different license (e.g., Apache-2.0, GPL), replace the text accordingly and ensure all contributors are aware of and agree to the chosen terms.
+This project is licensed under the BSD 2-Clause License. See the LICENSE file for details.
 
 ---
 
@@ -544,7 +534,7 @@ Having a defined contact point and list of references makes it easier for users 
 
 You can customize the following template:
 
-- **Maintainer:** Your Name `<your.email@example.com>`  
+- **Maintainer:** Victor Bilouro `<python@bilouro.com>`  
 - **Issues & Support:** Use the repository’s “Issues” tab for bug reports, feature requests, and questions.
 
 Useful documentation for the technologies used:
