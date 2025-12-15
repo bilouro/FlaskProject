@@ -288,15 +288,36 @@ def create_app(config_class=DevConfig) -> Flask:
     @app.errorhandler(404)
     @app.errorhandler(415)
     def handle_error(err):
-        return jsonify({"error": err.name, "message": err.description}), err.code
+        """
+        Standard JSON error response:
+        {
+          "error": "Bad Request",
+          "message": "...",
+          "code": 400
+        }
+        """
+        return (
+            jsonify(
+                {
+                    "error": err.name,
+                    "message": err.description,
+                    "code": err.code,
+                }
+            ),
+            err.code,
+        )
 
     @app.errorhandler(500)
     def handle_internal_error(err):
+        """
+        Standardized 500 error response.
+        """
         return (
             jsonify(
                 {
                     "error": "Internal Server Error",
                     "message": "An unexpected error occurred.",
+                    "code": 500,
                 }
             ),
             500,

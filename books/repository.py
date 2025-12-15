@@ -32,6 +32,7 @@ def _book_to_dict(book: Book) -> Dict[str, Any]:
         "author": book.author,
         "year": book.year,
         "isbn": book.isbn,
+        "status": book.status,
     }
 
 

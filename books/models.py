@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import Integer, String
+from sqlalchemy import Integer, String, DateTime, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from datetime import datetime
+from typing import Optional
 
 
 class Base(DeclarativeBase):
@@ -20,4 +22,18 @@ class Book(Base):
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     isbn: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
 
-    # Se quiser, você pode mapear também created_at / updated_at depois.
+    created_at: Mapped[Optional["datetime"]] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=True,
+    )
+    updated_at: Mapped[Optional["datetime"]] = mapped_column(
+        DateTime(timezone=True),
+        onupdate=func.now(),
+        nullable=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        server_default="active",
+    )
