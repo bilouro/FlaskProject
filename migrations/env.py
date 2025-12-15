@@ -6,7 +6,6 @@ from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
-
 from config import BaseConfig
 
 # ---------------------------------------------------------------------------
@@ -14,6 +13,9 @@ from config import BaseConfig
 # (para o import "books.models" funcionar mesmo quando o Alembic
 #  for executado a partir de outros diretórios).
 # ---------------------------------------------------------------------------
+
+config = context.config
+
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
@@ -26,10 +28,14 @@ from books.models import Base  # noqa: E402  (importa após ajustar sys.path)
 
 config = context.config
 
-# Usa a mesma URL da aplicação, escapando '%' para o ConfigParser do Alembic
 app_url = BaseConfig.SQLALCHEMY_DATABASE_URI
-safe_url = app_url.replace("%", "%%")
-config.set_main_option("sqlalchemy.url", safe_url)
+db_url = os.environ.get("DATABASE_URL")
+if not db_url:
+    #localhost
+    config.set_main_option("sqlalchemy.url", app_url)
+else:
+    #docker
+    config.set_main_option("sqlalchemy.url", db_url)
 
 # Logging
 if config.config_file_name is not None:
