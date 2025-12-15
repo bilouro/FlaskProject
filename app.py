@@ -41,9 +41,6 @@ def create_app(config_class=DevConfig) -> Flask:
                 "version": "1.0.0",
                 "description": "Simple Books API example with Flask",
             },
-            "servers": [
-                {"url": "http://127.0.0.1:5001"}
-            ],
             "paths": {
                 "/health": {
                     "get": {
