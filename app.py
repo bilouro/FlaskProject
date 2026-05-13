@@ -20,7 +20,7 @@ def create_app(config_class=DevConfig) -> Flask:
     app.config.from_object(config_class)
 
     # Register blueprints
-    app.register_blueprint(books_bp, url_prefix="/books")
+    app.register_blueprint(books_bp, url_prefix="/v1/books")
 
     # Health endpoint — pings the database through the SQLAlchemy engine
     # used by the repository, so it stays consistent with whatever DSN is
@@ -69,7 +69,7 @@ def create_app(config_class=DevConfig) -> Flask:
                         },
                     }
                 },
-                "/books/": {
+                "/v1/books/": {
                     "get": {
                         "summary": "List all books",
                         "responses": {
@@ -115,7 +115,7 @@ def create_app(config_class=DevConfig) -> Flask:
                         },
                     },
                 },
-                "/books/{id}": {
+                "/v1/books/{id}": {
                     "get": {
                         "summary": "Get a book by ID",
                         "parameters": [

@@ -65,8 +65,8 @@ def test_swagger_spec(client):
     assert spec["openapi"] == "3.0.0"
     assert spec["info"]["title"] == "Books API"
     # Sanity-check that all expected paths/methods are declared
-    assert set(spec["paths"].keys()) == {"/health", "/books/", "/books/{id}"}
-    assert set(spec["paths"]["/books/{id}"].keys()) == {"get", "put", "patch", "delete"}
+    assert set(spec["paths"].keys()) == {"/health", "/v1/books/", "/v1/books/{id}"}
+    assert set(spec["paths"]["/v1/books/{id}"].keys()) == {"get", "put", "patch", "delete"}
     assert "Book" in spec["components"]["schemas"]
     assert "BookCreate" in spec["components"]["schemas"]
 
@@ -95,11 +95,11 @@ def test_404_handler_returns_standard_envelope(client):
 
 def test_405_handler_returns_standard_envelope(client, seeded_db):
     """An unsupported method on an existing route exercises the 405 branch."""
-    resp = client.post(f"/books/{seeded_db[0]}")
+    resp = client.post(f"/v1/books/{seeded_db[0]}")
     assert resp.status_code == 405
     data = resp.get_json()
     assert data["code"] == 405
-    assert data["path"] == f"/books/{seeded_db[0]}"
+    assert data["path"] == f"/v1/books/{seeded_db[0]}"
 
 
 def test_500_handler_returns_standard_envelope():
@@ -123,12 +123,12 @@ def test_500_handler_returns_standard_envelope():
 
 
 def test_415_handler_via_abort(client):
-    resp = client.post("/books/", data="not-json")
+    resp = client.post("/v1/books/", data="not-json")
     assert resp.status_code == 415
     data = resp.get_json()
     assert data["code"] == 415
     assert data["error"] == "Unsupported Media Type"
-    assert data["path"] == "/books/"
+    assert data["path"] == "/v1/books/"
 
 
 def test_domain_error_handler_uses_envelope(client):
@@ -151,7 +151,7 @@ def test_domain_error_handler_uses_envelope(client):
 def test_validation_error_envelope_has_details(client, empty_db):
     """A bad payload surfaces structured `details` in the envelope."""
     resp = client.post(
-        "/books/",
+        "/v1/books/",
         json={"title": "t", "author": "a", "year": "not-an-int", "isbn": "X"},
     )
     assert resp.status_code == 400

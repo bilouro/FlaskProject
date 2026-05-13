@@ -41,7 +41,7 @@ def test_health_endpoint():
 
 def test_full_book_crud_flow():
     # 1) initial list
-    resp = requests.get(f"{BASE_URL}/books/", timeout=5)
+    resp = requests.get(f"{BASE_URL}/v1/books/", timeout=5)
     assert resp.status_code == 200
     initial_count = len(resp.json())
 
@@ -53,7 +53,7 @@ def test_full_book_crud_flow():
         "isbn": "FUNC-123456",
     }
     resp = requests.post(
-        f"{BASE_URL}/books/",
+        f"{BASE_URL}/v1/books/",
         data=json.dumps(new_book),
         headers={"Content-Type": "application/json"},
         timeout=5,
@@ -63,7 +63,7 @@ def test_full_book_crud_flow():
 
     try:
         # 3) get
-        resp = requests.get(f"{BASE_URL}/books/{book_id}", timeout=5)
+        resp = requests.get(f"{BASE_URL}/v1/books/{book_id}", timeout=5)
         assert resp.status_code == 200
         assert resp.json()["isbn"] == new_book["isbn"]
 
@@ -75,7 +75,7 @@ def test_full_book_crud_flow():
             "isbn": "FUNC-654321",
         }
         resp = requests.put(
-            f"{BASE_URL}/books/{book_id}",
+            f"{BASE_URL}/v1/books/{book_id}",
             data=json.dumps(replaced),
             headers={"Content-Type": "application/json"},
             timeout=5,
@@ -85,7 +85,7 @@ def test_full_book_crud_flow():
 
         # 5) patch
         resp = requests.patch(
-            f"{BASE_URL}/books/{book_id}",
+            f"{BASE_URL}/v1/books/{book_id}",
             data=json.dumps({"year": 2030}),
             headers={"Content-Type": "application/json"},
             timeout=5,
@@ -94,13 +94,13 @@ def test_full_book_crud_flow():
         assert resp.json()["year"] == 2030
     finally:
         # 6) delete (best-effort cleanup)
-        requests.delete(f"{BASE_URL}/books/{book_id}", timeout=5)
+        requests.delete(f"{BASE_URL}/v1/books/{book_id}", timeout=5)
 
     # 7) ensure gone
-    resp = requests.get(f"{BASE_URL}/books/{book_id}", timeout=5)
+    resp = requests.get(f"{BASE_URL}/v1/books/{book_id}", timeout=5)
     assert resp.status_code == 404
 
     # 8) count restored
-    resp = requests.get(f"{BASE_URL}/books/", timeout=5)
+    resp = requests.get(f"{BASE_URL}/v1/books/", timeout=5)
     assert resp.status_code == 200
     assert len(resp.json()) == initial_count

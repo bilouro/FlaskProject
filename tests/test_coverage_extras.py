@@ -3,6 +3,18 @@ import pytest
 from flask import Flask
 
 from books import repository
+from config import Settings
+
+
+def test_settings_database_url_short_circuits_dsn_build():
+    """When APP_DATABASE_URL is set, it overrides the assembled DSN."""
+    s = Settings(
+        db_password="x",
+        database_url="postgresql+psycopg2://override:pw@host:5432/db",
+    )
+    assert s.sqlalchemy_database_uri == (
+        "postgresql+psycopg2://override:pw@host:5432/db"
+    )
 
 
 def test_resolve_database_uri_without_app_context_uses_baseconfig(monkeypatch):

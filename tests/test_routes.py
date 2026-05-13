@@ -17,18 +17,18 @@ def _count_books_with_isbn(isbn: str) -> int:
 
 def _post(client, payload, content_type="application/json"):
     return client.post(
-        "/books/",
+        "/v1/books/",
         data=json.dumps(payload) if content_type == "application/json" else payload,
         content_type=content_type,
     )
 
 
 # ---------------------------------------------------------------------------
-# GET /books/
+# GET /v1/books/
 # ---------------------------------------------------------------------------
 
 def test_list_books_returns_seeded_rows(client, seeded_db):
-    resp = client.get("/books/")
+    resp = client.get("/v1/books/")
     assert resp.status_code == 200
     data = resp.get_json()
     assert [b["title"] for b in data] == ["Book 1", "Book 2"]
@@ -37,18 +37,18 @@ def test_list_books_returns_seeded_rows(client, seeded_db):
 
 
 def test_list_books_empty(client, empty_db):
-    resp = client.get("/books/")
+    resp = client.get("/v1/books/")
     assert resp.status_code == 200
     assert resp.get_json() == []
 
 
 # ---------------------------------------------------------------------------
-# GET /books/<id>
+# GET /v1/books/<id>
 # ---------------------------------------------------------------------------
 
 def test_get_book_success(client, seeded_db):
     book_id = seeded_db[0]
-    resp = client.get(f"/books/{book_id}")
+    resp = client.get(f"/v1/books/{book_id}")
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["id"] == book_id
@@ -56,15 +56,15 @@ def test_get_book_success(client, seeded_db):
 
 
 def test_get_book_not_found(client, empty_db):
-    resp = client.get("/books/999")
+    resp = client.get("/v1/books/999")
     assert resp.status_code == 404
     body = resp.get_json()
     assert body["message"] == "Book not found"
-    assert body["path"] == "/books/999"
+    assert body["path"] == "/v1/books/999"
 
 
 # ---------------------------------------------------------------------------
-# POST /books/  — success + every validation branch
+# POST /v1/books/  — success + every validation branch
 # ---------------------------------------------------------------------------
 
 def test_create_book_success(client, empty_db):
@@ -78,14 +78,14 @@ def test_create_book_success(client, empty_db):
 
 
 def test_create_book_wrong_content_type_returns_415(client):
-    resp = client.post("/books/", data="not-json", content_type="text/plain")
+    resp = client.post("/v1/books/", data="not-json", content_type="text/plain")
     assert resp.status_code == 415
     assert "application/json" in resp.get_json()["message"]
 
 
 def test_create_book_non_object_json_returns_400(client):
     resp = client.post(
-        "/books/",
+        "/v1/books/",
         data=json.dumps(["not", "an", "object"]),
         content_type="application/json",
     )
@@ -137,13 +137,13 @@ def test_create_book_duplicate_isbn_returns_409(client, empty_db):
 
 
 # ---------------------------------------------------------------------------
-# PUT /books/<id>
+# PUT /v1/books/<id>
 # ---------------------------------------------------------------------------
 
 def test_replace_book_success(client, seeded_db):
     book_id = seeded_db[0]
     payload = {"title": "U", "author": "U", "year": 2010, "isbn": "U-1"}
-    resp = client.put(f"/books/{book_id}", json=payload)
+    resp = client.put(f"/v1/books/{book_id}", json=payload)
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["title"] == "U"
@@ -152,7 +152,7 @@ def test_replace_book_success(client, seeded_db):
 
 def test_replace_book_not_found(client, empty_db):
     payload = {"title": "x", "author": "x", "year": 2000, "isbn": "no"}
-    resp = client.put("/books/999", json=payload)
+    resp = client.put("/v1/books/999", json=payload)
     assert resp.status_code == 404
 
 
@@ -160,46 +160,46 @@ def test_replace_book_duplicate_isbn_returns_409(client, seeded_db):
     """PUT a book to the ISBN of another book."""
     other_id = seeded_db[1]
     payload = {"title": "x", "author": "x", "year": 2000, "isbn": "111"}  # collides with seeded_db[0]
-    resp = client.put(f"/books/{other_id}", json=payload)
+    resp = client.put(f"/v1/books/{other_id}", json=payload)
     assert resp.status_code == 409
 
 
 # ---------------------------------------------------------------------------
-# PATCH /books/<id>
+# PATCH /v1/books/<id>
 # ---------------------------------------------------------------------------
 
 def test_patch_book_success(client, seeded_db):
     book_id = seeded_db[0]
-    resp = client.patch(f"/books/{book_id}", json={"year": 2020})
+    resp = client.patch(f"/v1/books/{book_id}", json={"year": 2020})
     assert resp.status_code == 200
     assert resp.get_json()["year"] == 2020
 
 
 def test_patch_book_empty_body_returns_400(client, seeded_db):
     book_id = seeded_db[0]
-    resp = client.patch(f"/books/{book_id}", json={})
+    resp = client.patch(f"/v1/books/{book_id}", json={})
     assert resp.status_code == 400
     assert "At least one field" in resp.get_json()["message"]
 
 
 def test_patch_book_not_found(client, empty_db):
-    resp = client.patch("/books/999", json={"year": 2020})
+    resp = client.patch("/v1/books/999", json={"year": 2020})
     assert resp.status_code == 404
 
 
 def test_patch_book_duplicate_isbn_returns_409(client, seeded_db):
     target = seeded_db[1]
-    resp = client.patch(f"/books/{target}", json={"isbn": "111"})
+    resp = client.patch(f"/v1/books/{target}", json={"isbn": "111"})
     assert resp.status_code == 409
 
 
 # ---------------------------------------------------------------------------
-# DELETE /books/<id>
+# DELETE /v1/books/<id>
 # ---------------------------------------------------------------------------
 
 def test_delete_book_success(client, seeded_db):
     book_id = seeded_db[0]
-    resp = client.delete(f"/books/{book_id}")
+    resp = client.delete(f"/v1/books/{book_id}")
     assert resp.status_code == 204
     assert resp.get_data() == b""
 
@@ -208,5 +208,5 @@ def test_delete_book_success(client, seeded_db):
 
 
 def test_delete_book_not_found(client, empty_db):
-    resp = client.delete("/books/999")
+    resp = client.delete("/v1/books/999")
     assert resp.status_code == 404

@@ -6,6 +6,12 @@ Flask config, so tests just point that at SQLite — no real Postgres needed.
 """
 from __future__ import annotations
 
+import os
+
+# Settings requires APP_DB_PASSWORD. Set a placeholder before any module
+# that imports `config` is loaded — production never sees this value.
+os.environ.setdefault("APP_DB_PASSWORD", "test-password")
+
 import pytest
 
 from app import create_app
