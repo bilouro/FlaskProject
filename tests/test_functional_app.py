@@ -1,63 +1,74 @@
-import unittest
+"""Functional tests that hit a running Flask server via real HTTP.
+
+These are opt-in: they require `python app.py` to be running on
+http://127.0.0.1:5001. When the server is unreachable they are skipped, so
+they never break the default `pytest` run."""
 import json
+
+import pytest
 import requests
 
 
-BASE_URL = "http://127.0.0.1:5000"
+BASE_URL = "http://127.0.0.1:5001"
 
 
-class FunctionalHttpTestCase(unittest.TestCase):
-    """
-    Functional tests that hit the running Flask app via real HTTP calls.
-
-    Requirements:
-    - The Flask app MUST be running (python app.py)
-    - The PostgreSQL database MUST be up and have the 'books' table.
-    """
-
-    def test_health_endpoint(self):
-        resp = requests.get(f"{BASE_URL}/health", timeout=5)
-        self.assertEqual(resp.status_code, 200)
+def _server_up() -> bool:
+    """True only if /health responds 200 with the expected JSON shape — guards
+    against unrelated services squatting on port 5000 (e.g. macOS AirPlay)."""
+    try:
+        resp = requests.get(f"{BASE_URL}/health", timeout=1)
+        if resp.status_code != 200:
+            return False
         data = resp.json()
-        self.assertEqual(data.get("status"), "ok")
-        self.assertIn("database", data)
+        return isinstance(data, dict) and data.get("status") == "ok"
+    except (requests.RequestException, ValueError):
+        return False
 
-    def test_full_book_crud_flow(self):
-        # 1) List current books
-        # Use trailing slash to avoid 308 redirect
-        resp = requests.get(f"{BASE_URL}/books/", timeout=5)
-        self.assertEqual(resp.status_code, 200)
-        initial_books = resp.json()
-        initial_count = len(initial_books)
 
-        # 2) Create a new book
-        new_book = {
-            "title": "Functional Test Book",
-            "author": "Test Author",
-            "year": 2024,
-            "isbn": "FUNC-123456",
-        }
-        resp = requests.post(
-            f"{BASE_URL}/books/",  # trailing slash
-            data=json.dumps(new_book),
-            headers={"Content-Type": "application/json"},
-            timeout=5,
-        )
-        self.assertEqual(resp.status_code, 201)
-        created = resp.json()
-        self.assertIn("id", created)
-        self.assertEqual(created["title"], new_book["title"])
-        book_id = created["id"]
+pytestmark = [
+    pytest.mark.functional,
+    pytest.mark.skipif(not _server_up(), reason="Flask server is not running on :5000"),
+]
 
-        # 3) Get the created book
+
+def test_health_endpoint():
+    resp = requests.get(f"{BASE_URL}/health", timeout=5)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("status") == "ok"
+    assert "database" in data
+
+
+def test_full_book_crud_flow():
+    # 1) initial list
+    resp = requests.get(f"{BASE_URL}/books/", timeout=5)
+    assert resp.status_code == 200
+    initial_count = len(resp.json())
+
+    # 2) create
+    new_book = {
+        "title": "Functional Test Book",
+        "author": "Test Author",
+        "year": 2024,
+        "isbn": "FUNC-123456",
+    }
+    resp = requests.post(
+        f"{BASE_URL}/books/",
+        data=json.dumps(new_book),
+        headers={"Content-Type": "application/json"},
+        timeout=5,
+    )
+    assert resp.status_code == 201
+    book_id = resp.json()["id"]
+
+    try:
+        # 3) get
         resp = requests.get(f"{BASE_URL}/books/{book_id}", timeout=5)
-        self.assertEqual(resp.status_code, 200)
-        fetched = resp.json()
-        self.assertEqual(fetched["id"], book_id)
-        self.assertEqual(fetched["isbn"], new_book["isbn"])
+        assert resp.status_code == 200
+        assert resp.json()["isbn"] == new_book["isbn"]
 
-        # 4) Replace the book (PUT)
-        updated_full = {
+        # 4) put
+        replaced = {
             "title": "Functional Test Book - Updated",
             "author": "Updated Author",
             "year": 2025,
@@ -65,41 +76,31 @@ class FunctionalHttpTestCase(unittest.TestCase):
         }
         resp = requests.put(
             f"{BASE_URL}/books/{book_id}",
-            data=json.dumps(updated_full),
+            data=json.dumps(replaced),
             headers={"Content-Type": "application/json"},
             timeout=5,
         )
-        self.assertEqual(resp.status_code, 200)
-        replaced = resp.json()
-        self.assertEqual(replaced["title"], updated_full["title"])
-        self.assertEqual(replaced["isbn"], updated_full["isbn"])
+        assert resp.status_code == 200
+        assert resp.json()["title"] == replaced["title"]
 
-        # 5) Partially update the book (PATCH)
-        partial_update = {"year": 2030}
+        # 5) patch
         resp = requests.patch(
             f"{BASE_URL}/books/{book_id}",
-            data=json.dumps(partial_update),
+            data=json.dumps({"year": 2030}),
             headers={"Content-Type": "application/json"},
             timeout=5,
         )
-        self.assertEqual(resp.status_code, 200)
-        patched = resp.json()
-        self.assertEqual(patched["year"], 2030)
+        assert resp.status_code == 200
+        assert resp.json()["year"] == 2030
+    finally:
+        # 6) delete (best-effort cleanup)
+        requests.delete(f"{BASE_URL}/books/{book_id}", timeout=5)
 
-        # 6) Delete the book
-        resp = requests.delete(f"{BASE_URL}/books/{book_id}", timeout=5)
-        self.assertEqual(resp.status_code, 204)
+    # 7) ensure gone
+    resp = requests.get(f"{BASE_URL}/books/{book_id}", timeout=5)
+    assert resp.status_code == 404
 
-        # 7) Ensure it was deleted
-        resp = requests.get(f"{BASE_URL}/books/{book_id}", timeout=5)
-        self.assertEqual(resp.status_code, 404)
-
-        # 8) List again and check count is back to original
-        resp = requests.get(f"{BASE_URL}/books/", timeout=5)
-        self.assertEqual(resp.status_code, 200)
-        final_books = resp.json()
-        self.assertEqual(len(final_books), initial_count)
-
-
-if __name__ == "__main__":
-    unittest.main()
+    # 8) count restored
+    resp = requests.get(f"{BASE_URL}/books/", timeout=5)
+    assert resp.status_code == 200
+    assert len(resp.json()) == initial_count

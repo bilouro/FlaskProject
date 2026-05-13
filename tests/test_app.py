@@ -1,206 +1,162 @@
-import json
-import unittest
+"""App-level tests: factory, /health, /swagger.json, /docs, error handlers."""
+from unittest.mock import patch
+
+import pytest
 
 from app import create_app
-from config import TestConfig
-from db import get_connection
+from books.exceptions import DomainError
+from config import DevConfig, ProdConfig, TestConfig
 
 
-class BookApiTestCase(unittest.TestCase):
-    """
-    API-level tests using Flask's test client (no real HTTP, but full routing, JSON, etc.).
-    Tests hit the real PostgreSQL database configured for the app.
-    """
+# ---------------------------------------------------------------------------
+# Application factory / configs
+# ---------------------------------------------------------------------------
 
-    @classmethod
-    def setUpClass(cls):
-        """
-        Create a Flask app instance configured for tests
-        and a shared test client.
-        """
-        cls.app = create_app(TestConfig)
-        cls.app_context = cls.app.app_context()
-        cls.app_context.push()
-        cls.client = cls.app.test_client()
-
-    @classmethod
-    def tearDownClass(cls):
-        """
-        Clean up the application context after all tests.
-        """
-        cls.app_context.pop()
-
-    def setUp(self):
-        """
-        Ensure a known state for the database before each test.
-        """
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                # Clear table and reset ids (dev/test friendly)
-                cur.execute("TRUNCATE TABLE books RESTART IDENTITY CASCADE;")
-
-                # Insert two known records
-                cur.execute(
-                    """
-                    INSERT INTO books (title, author, year, isbn)
-                    VALUES
-                        (%s, %s, %s, %s),
-                        (%s, %s, %s, %s)
-                    """,
-                    (
-                        "Book 1", "Author 1", 2001, "111",
-                        "Book 2", "Author 2", 2002, "222",
-                    ),
-                )
-            conn.commit()
-
-    # ---------- GET /health ----------
-    def test_health(self):
-        resp = self.client.get("/health")
-        self.assertEqual(resp.status_code, 200)
-
-        data = resp.get_json()
-        self.assertIsInstance(data, dict)
-        self.assertEqual(data.get("status"), "ok")
-        self.assertIn("database", data)
-
-    # ---------- GET /books/ ----------
-    def test_list_books(self):
-        # NOTE: use "/books/" (with trailing slash) to avoid 308 redirect
-        resp = self.client.get("/books/")
-        self.assertEqual(resp.status_code, 200)
-
-        data = resp.get_json()
-        self.assertIsInstance(data, list)
-        self.assertEqual(len(data), 2)
-        self.assertEqual(data[0]["title"], "Book 1")
-        self.assertEqual(data[1]["title"], "Book 2")
-
-    # ---------- GET /books/<id> ----------
-    def test_get_book_success(self):
-        resp = self.client.get("/books/1")
-        self.assertEqual(resp.status_code, 200)
-
-        data = resp.get_json()
-        self.assertEqual(data["id"], 1)
-        self.assertEqual(data["title"], "Book 1")
-
-    def test_get_book_not_found(self):
-        resp = self.client.get("/books/999")
-        self.assertEqual(resp.status_code, 404)
-
-    # ---------- POST /books/ ----------
-    def test_create_book_success(self):
-        new_book = {
-            "title": "New Book",
-            "author": "New Author",
-            "year": 2023,
-            "isbn": "333",
-        }
-        # NOTE: use "/books/" to avoid 308 redirect
-        resp = self.client.post(
-            "/books/",
-            data=json.dumps(new_book),
-            content_type="application/json",
-        )
-        self.assertEqual(resp.status_code, 201)
-
-        data = resp.get_json()
-        self.assertIn("id", data)
-        self.assertEqual(data["title"], "New Book")
-
-        # Check it was really inserted into DB
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM books WHERE isbn = %s", ("333",))
-                count = cur.fetchone()[0]
-        self.assertEqual(count, 1)
-
-    def test_create_book_missing_field(self):
-        # Missing the "author" field
-        invalid_book = {
-            "title": "Invalid Book",
-            "year": 2023,
-            "isbn": "999",
-        }
-        resp = self.client.post(
-            "/books/",
-            data=json.dumps(invalid_book),
-            content_type="application/json",
-        )
-        self.assertEqual(resp.status_code, 400)
-
-    # ---------- PUT /books/<id> ----------
-    def test_replace_book_success(self):
-        payload = {
-            "title": "Updated Book 1",
-            "author": "Updated Author",
-            "year": 2010,
-            "isbn": "111-updated",
-        }
-        resp = self.client.put(
-            "/books/1",
-            data=json.dumps(payload),
-            content_type="application/json",
-        )
-        self.assertEqual(resp.status_code, 200)
-
-        data = resp.get_json()
-        self.assertEqual(data["title"], "Updated Book 1")
-        self.assertEqual(data["isbn"], "111-updated")
-
-    def test_replace_book_not_found(self):
-        payload = {
-            "title": "Does Not Exist",
-            "author": "X",
-            "year": 2000,
-            "isbn": "000",
-        }
-        resp = self.client.put(
-            "/books/999",
-            data=json.dumps(payload),
-            content_type="application/json",
-        )
-        self.assertEqual(resp.status_code, 404)
-
-    # ---------- PATCH /books/<id> ----------
-    def test_update_book_success(self):
-        payload = {"year": 2020}
-        resp = self.client.patch(
-            "/books/1",
-            data=json.dumps(payload),
-            content_type="application/json",
-        )
-        self.assertEqual(resp.status_code, 200)
-
-        data = resp.get_json()
-        self.assertEqual(data["year"], 2020)
-
-    def test_update_book_not_found(self):
-        payload = {"year": 2020}
-        resp = self.client.patch(
-            "/books/999",
-            data=json.dumps(payload),
-            content_type="application/json",
-        )
-        self.assertEqual(resp.status_code, 404)
-
-    # ---------- DELETE /books/<id> ----------
-    def test_delete_book_success(self):
-        resp = self.client.delete("/books/1")
-        self.assertEqual(resp.status_code, 204)
-
-        # Ensure it was removed from the database
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM books WHERE id = %s", (1,))
-                count = cur.fetchone()[0]
-        self.assertEqual(count, 0)
-
-    def test_delete_book_not_found(self):
-        resp = self.client.delete("/books/999")
-        self.assertEqual(resp.status_code, 404)
+def test_create_app_defaults_to_dev_config():
+    flask_app = create_app()
+    assert flask_app.config["DEBUG"] is True
+    assert flask_app.config["TESTING"] is False
 
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.parametrize(
+    "cfg, debug, testing",
+    [
+        (DevConfig, True, False),
+        (TestConfig, False, True),
+        (ProdConfig, False, False),
+    ],
+)
+def test_create_app_with_each_config(cfg, debug, testing):
+    flask_app = create_app(cfg)
+    assert flask_app.config["DEBUG"] is debug
+    assert flask_app.config["TESTING"] is testing
+    # DSN is correctly assembled from the base config
+    assert flask_app.config["SQLALCHEMY_DATABASE_URI"].startswith("postgresql+psycopg2://")
+
+
+# ---------------------------------------------------------------------------
+# /health
+# ---------------------------------------------------------------------------
+
+def test_health_ok(client):
+    """With the SQLite test engine wired in, /health should respond ok."""
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data == {"status": "ok", "database": "ok"}
+
+
+def test_health_db_error(client):
+    """If the engine raises, /health still returns 200 but database=error."""
+    with patch("app.books_repository.get_engine", side_effect=RuntimeError("boom")):
+        resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"status": "ok", "database": "error"}
+
+
+# ---------------------------------------------------------------------------
+# /swagger.json and /docs
+# ---------------------------------------------------------------------------
+
+def test_swagger_spec(client):
+    resp = client.get("/swagger.json")
+    assert resp.status_code == 200
+    spec = resp.get_json()
+    assert spec["openapi"] == "3.0.0"
+    assert spec["info"]["title"] == "Books API"
+    # Sanity-check that all expected paths/methods are declared
+    assert set(spec["paths"].keys()) == {"/health", "/books/", "/books/{id}"}
+    assert set(spec["paths"]["/books/{id}"].keys()) == {"get", "put", "patch", "delete"}
+    assert "Book" in spec["components"]["schemas"]
+    assert "BookCreate" in spec["components"]["schemas"]
+
+
+def test_docs_returns_swagger_ui(client):
+    resp = client.get("/docs")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "swagger-ui" in body
+    assert "/swagger.json" in body
+
+
+# ---------------------------------------------------------------------------
+# Error envelope handlers (400/404/405/415/500 + ValidationError + DomainError)
+# ---------------------------------------------------------------------------
+
+def test_404_handler_returns_standard_envelope(client):
+    resp = client.get("/does-not-exist-anywhere")
+    assert resp.status_code == 404
+    data = resp.get_json()
+    assert data["code"] == 404
+    assert data["error"] == "Not Found"
+    assert data["path"] == "/does-not-exist-anywhere"
+    assert "message" in data
+
+
+def test_405_handler_returns_standard_envelope(client, seeded_db):
+    """An unsupported method on an existing route exercises the 405 branch."""
+    resp = client.post(f"/books/{seeded_db[0]}")
+    assert resp.status_code == 405
+    data = resp.get_json()
+    assert data["code"] == 405
+    assert data["path"] == f"/books/{seeded_db[0]}"
+
+
+def test_500_handler_returns_standard_envelope():
+    """Register an ad-hoc route that raises an unhandled exception."""
+    from tests.conftest import SqliteTestConfig
+
+    flask_app = create_app(SqliteTestConfig)
+    flask_app.config["PROPAGATE_EXCEPTIONS"] = False
+
+    @flask_app.get("/__boom__")
+    def boom():
+        raise RuntimeError("unexpected")
+
+    resp = flask_app.test_client().get("/__boom__")
+    assert resp.status_code == 500
+    data = resp.get_json()
+    assert data["code"] == 500
+    assert data["error"] == "Internal Server Error"
+    assert data["message"] == "An unexpected error occurred."
+    assert data["path"] == "/__boom__"
+
+
+def test_415_handler_via_abort(client):
+    resp = client.post("/books/", data="not-json")
+    assert resp.status_code == 415
+    data = resp.get_json()
+    assert data["code"] == 415
+    assert data["error"] == "Unsupported Media Type"
+    assert data["path"] == "/books/"
+
+
+def test_domain_error_handler_uses_envelope(client):
+    """Direct exercise of the DomainError handler path."""
+    err = DomainError("custom domain message")
+    err.status_code = 418
+    flask_app = create_app(__import__("tests.conftest", fromlist=["SqliteTestConfig"]).SqliteTestConfig)
+
+    @flask_app.get("/__teapot__")
+    def teapot():
+        raise DomainError("I refuse")
+
+    resp = flask_app.test_client().get("/__teapot__")
+    data = resp.get_json()
+    assert resp.status_code == 500  # default DomainError status
+    assert data["message"] == "I refuse"
+    assert data["path"] == "/__teapot__"
+
+
+def test_validation_error_envelope_has_details(client, empty_db):
+    """A bad payload surfaces structured `details` in the envelope."""
+    resp = client.post(
+        "/books/",
+        json={"title": "t", "author": "a", "year": "not-an-int", "isbn": "X"},
+    )
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert data["code"] == 400
+    assert "year" in data["message"]
+    assert isinstance(data["details"], list)
+    assert any("year" in str(d.get("loc", "")) for d in data["details"])

@@ -1,0 +1,27 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "-q",
+    "--cov=app",
+    "--cov=config",
+    "--cov=books",
+    "--cov-report=term-missing",
+    "--cov-fail-under=100",
+]
+markers = [
+    "functional: tests that require the Flask server to be running on http://127.0.0.1:5000",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["app", "config", "books"]
+omit = ["tests/*", "migrations/*", ".venv/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]

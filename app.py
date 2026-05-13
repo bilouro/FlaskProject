@@ -1,8 +1,13 @@
-from flask import Flask, jsonify
+from http import HTTPStatus
 
-from config import DevConfig  # you can switch to ProdConfig in production
-from db import get_connection
+from flask import Flask, jsonify, request
+from pydantic import ValidationError
+from sqlalchemy import text
+
+from books import repository as books_repository
+from books.exceptions import DomainError
 from books.routes import bp as books_bp
+from config import DevConfig  # you can switch to ProdConfig in production
 
 
 def create_app(config_class=DevConfig) -> Flask:
@@ -17,14 +22,15 @@ def create_app(config_class=DevConfig) -> Flask:
     # Register blueprints
     app.register_blueprint(books_bp, url_prefix="/books")
 
-    # Health endpoint
+    # Health endpoint — pings the database through the SQLAlchemy engine
+    # used by the repository, so it stays consistent with whatever DSN is
+    # configured (Postgres in prod, SQLite in tests).
     @app.get("/health")
     def health():
         try:
-            with get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT 1")
-                    cur.fetchone()
+            engine = books_repository.get_engine()
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
             db_status = "ok"
         except Exception:
             db_status = "error"
@@ -280,45 +286,57 @@ def create_app(config_class=DevConfig) -> Flask:
         """
         return html
 
-    # Error handlers
+    # -----------------------------------------------------------------
+    # Error handlers — one consistent envelope for every 4xx/5xx response:
+    #   {"error", "message", "code", "path", "details" (optional)}
+    # -----------------------------------------------------------------
+
+    def _envelope(status_code, message, details=None):
+        try:
+            phrase = HTTPStatus(status_code).phrase
+        except ValueError:
+            phrase = "Error"
+        body = {
+            "error": phrase,
+            "message": message,
+            "code": status_code,
+            "path": request.path,
+        }
+        if details is not None:
+            body["details"] = details
+        return jsonify(body), status_code
+
     @app.errorhandler(400)
     @app.errorhandler(404)
+    @app.errorhandler(405)
     @app.errorhandler(415)
-    def handle_error(err):
-        """
-        Standard JSON error response:
-        {
-          "error": "Bad Request",
-          "message": "...",
-          "code": 400
-        }
-        """
-        return (
-            jsonify(
-                {
-                    "error": err.name,
-                    "message": err.description,
-                    "code": err.code,
-                }
-            ),
-            err.code,
-        )
+    def handle_http_error(err):
+        return _envelope(err.code, err.description)
+
+    @app.errorhandler(ValidationError)
+    def handle_validation_error(err: ValidationError):
+        errors = err.errors()
+        primary = errors[0] if errors else {"msg": "validation error"}
+        field = ".".join(str(p) for p in primary.get("loc", []))
+        msg = primary.get("msg", "validation error")
+        message = f"{field}: {msg}" if field else msg
+        # Strip non-serialisable objects (Pydantic puts Exception instances
+        # inside ctx for value_error types).
+        clean = []
+        for e in errors:
+            entry = {k: v for k, v in e.items() if k != "ctx"}
+            if "ctx" in e and isinstance(e["ctx"], dict):
+                entry["ctx"] = {k: str(v) for k, v in e["ctx"].items()}
+            clean.append(entry)
+        return _envelope(400, message, details=clean)
+
+    @app.errorhandler(DomainError)
+    def handle_domain_error(err: DomainError):
+        return _envelope(err.status_code, err.message)
 
     @app.errorhandler(500)
-    def handle_internal_error(err):
-        """
-        Standardized 500 error response.
-        """
-        return (
-            jsonify(
-                {
-                    "error": "Internal Server Error",
-                    "message": "An unexpected error occurred.",
-                    "code": 500,
-                }
-            ),
-            500,
-        )
+    def handle_internal_error(_err):
+        return _envelope(500, "An unexpected error occurred.")
 
     return app
 
@@ -329,4 +347,4 @@ app = create_app()
 
 if __name__ == "__main__":
     # For development only. In production, use a proper WSGI server (e.g., gunicorn).
-    app.run(host="0.0.0.0", port=5000, debug=app.config.get("DEBUG", False))
+    app.run(host="0.0.0.0", port=5001, debug=app.config.get("DEBUG", False))
