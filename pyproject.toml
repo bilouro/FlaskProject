@@ -5,6 +5,8 @@ addopts = [
     "--cov=app",
     "--cov=config",
     "--cov=books",
+    "--cov=logging_config",
+    "--cov=openapi",
     "--cov-report=term-missing",
     "--cov-fail-under=100",
 ]
@@ -14,7 +16,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["app", "config", "books"]
+source = ["app", "config", "books", "logging_config", "openapi"]
 omit = ["tests/*", "migrations/*", ".venv/*"]
 
 [tool.coverage.report]

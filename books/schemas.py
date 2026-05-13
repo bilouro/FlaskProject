@@ -1,11 +1,13 @@
-"""Pydantic v2 schemas for incoming book payloads.
+"""Pydantic v2 schemas for the books domain.
 
-Replaces the previous hand-rolled `_validate_fields` validator. All schemas
-forbid unknown fields and enforce strict type checks so the HTTP layer can
-trust the data it receives.
+Input schemas (`BookCreate`/`BookReplace`/`BookPatch`) reject unknown fields
+and enforce strict type checks. The output schema (`BookOut`) types the
+response payload, including the server-managed `status`, `created_at`, and
+`updated_at` fields.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -44,3 +46,18 @@ class BookPatch(_StrictBase):
         if not self.model_dump(exclude_unset=True):
             raise ValueError("At least one field must be provided")
         return self
+
+
+class BookOut(BaseModel):
+    """Response payload. Accepts dict or ORM instance (`from_attributes`)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    author: str
+    year: int
+    isbn: str
+    status: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None

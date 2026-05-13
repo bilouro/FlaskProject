@@ -46,6 +46,8 @@ def test_book_to_dict_includes_all_exposed_fields(app):
         "year": 2024,
         "isbn": "i",
         "status": "active",
+        "created_at": None,
+        "updated_at": None,
     }
 
 

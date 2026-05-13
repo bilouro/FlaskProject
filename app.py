@@ -1,3 +1,7 @@
+"""Flask application factory and WSGI entrypoint."""
+from __future__ import annotations
+
+import logging
 from http import HTTPStatus
 
 from flask import Flask, jsonify, request
@@ -7,262 +11,72 @@ from sqlalchemy import text
 from books import repository as books_repository
 from books.exceptions import DomainError
 from books.routes import bp as books_bp
-from config import DevConfig  # you can switch to ProdConfig in production
+from config import DevConfig, get_settings
+from logging_config import configure_logging
+from openapi import build_spec
+
+
+__version__ = "1.0.0"
+
+log = logging.getLogger("app")
 
 
 def create_app(config_class=DevConfig) -> Flask:
-    """
-    Application factory.
+    """Application factory.
 
     Creates and configures the Flask app instance.
     """
+    settings = get_settings()
+    configure_logging("DEBUG" if config_class is DevConfig else "INFO")
+    log.info(
+        "starting app env=%s version=%s", getattr(settings, "env", "?"), __version__
+    )
+
     app = Flask(__name__)
     app.config.from_object(config_class)
 
-    # Register blueprints
+    # Register blueprints under the versioned prefix.
     app.register_blueprint(books_bp, url_prefix="/v1/books")
 
-    # Health endpoint — pings the database through the SQLAlchemy engine
-    # used by the repository, so it stays consistent with whatever DSN is
-    # configured (Postgres in prod, SQLite in tests).
+    # ------------------------------------------------------------------
+    # Meta routes
+    # ------------------------------------------------------------------
+
+    @app.get("/")
+    def root():
+        return jsonify(
+            {
+                "name": "Books API",
+                "version": __version__,
+                "api": "/v1",
+                "docs": "/docs",
+                "openapi": "/swagger.json",
+            }
+        )
+
     @app.get("/health")
     def health():
+        """Liveness + DB readiness probe."""
         try:
             engine = books_repository.get_engine()
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
             db_status = "ok"
         except Exception:
+            log.exception("health check: database query failed")
             db_status = "error"
 
-        return jsonify({"status": "ok", "database": db_status})
+        return jsonify(
+            {"status": "ok", "database": db_status, "version": __version__}
+        )
 
-    # Swagger/OpenAPI spec
     @app.get("/swagger.json")
     def swagger_spec():
-        spec = {
-            "openapi": "3.0.0",
-            "info": {
-                "title": "Books API",
-                "version": "1.0.0",
-                "description": "Simple Books API example with Flask",
-            },
-            "paths": {
-                "/health": {
-                    "get": {
-                        "summary": "Health check",
-                        "responses": {
-                            "200": {
-                                "description": "Health status",
-                                "content": {
-                                    "application/json": {
-                                        "schema": {
-                                            "type": "object",
-                                            "properties": {
-                                                "status": {"type": "string"},
-                                                "database": {"type": "string"},
-                                            },
-                                        }
-                                    }
-                                },
-                            }
-                        },
-                    }
-                },
-                "/v1/books/": {
-                    "get": {
-                        "summary": "List all books",
-                        "responses": {
-                            "200": {
-                                "description": "List of books",
-                                "content": {
-                                    "application/json": {
-                                        "schema": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/components/schemas/Book"
-                                            },
-                                        }
-                                    }
-                                },
-                            }
-                        },
-                    },
-                    "post": {
-                        "summary": "Create a new book",
-                        "requestBody": {
-                            "required": True,
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "$ref": "#/components/schemas/BookCreate"
-                                    }
-                                }
-                            },
-                        },
-                        "responses": {
-                            "201": {
-                                "description": "Created book",
-                                "content": {
-                                    "application/json": {
-                                        "schema": {
-                                            "$ref": "#/components/schemas/Book"
-                                        }
-                                    }
-                                },
-                            },
-                            "400": {"description": "Validation error"},
-                        },
-                    },
-                },
-                "/v1/books/{id}": {
-                    "get": {
-                        "summary": "Get a book by ID",
-                        "parameters": [
-                            {
-                                "name": "id",
-                                "in": "path",
-                                "required": True,
-                                "schema": {"type": "integer"},
-                            }
-                        ],
-                        "responses": {
-                            "200": {
-                                "description": "Book found",
-                                "content": {
-                                    "application/json": {
-                                        "schema": {
-                                            "$ref": "#/components/schemas/Book"
-                                        }
-                                    }
-                                },
-                            },
-                            "404": {"description": "Book not found"},
-                        },
-                    },
-                    "put": {
-                        "summary": "Replace a book",
-                        "parameters": [
-                            {
-                                "name": "id",
-                                "in": "path",
-                                "required": True,
-                                "schema": {"type": "integer"},
-                            }
-                        ],
-                        "requestBody": {
-                            "required": True,
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "$ref": "#/components/schemas/BookCreate"
-                                    }
-                                }
-                            },
-                        },
-                        "responses": {
-                            "200": {
-                                "description": "Updated book",
-                                "content": {
-                                    "application/json": {
-                                        "schema": {
-                                            "$ref": "#/components/schemas/Book"
-                                        }
-                                    }
-                                },
-                            },
-                            "404": {"description": "Book not found"},
-                        },
-                    },
-                    "patch": {
-                        "summary": "Partially update a book",
-                        "parameters": [
-                            {
-                                "name": "id",
-                                "in": "path",
-                                "required": True,
-                                "schema": {"type": "integer"},
-                            }
-                        ],
-                        "requestBody": {
-                            "required": True,
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "title": {"type": "string"},
-                                            "author": {"type": "string"},
-                                            "year": {"type": "integer"},
-                                            "isbn": {"type": "string"},
-                                        },
-                                    }
-                                }
-                            },
-                        },
-                        "responses": {
-                            "200": {
-                                "description": "Updated book",
-                                "content": {
-                                    "application/json": {
-                                        "schema": {
-                                            "$ref": "#/components/schemas/Book"
-                                        }
-                                    }
-                                },
-                            },
-                            "404": {"description": "Book not found"},
-                        },
-                    },
-                    "delete": {
-                        "summary": "Delete a book",
-                        "parameters": [
-                            {
-                                "name": "id",
-                                "in": "path",
-                                "required": True,
-                                "schema": {"type": "integer"},
-                            }
-                        ],
-                        "responses": {
-                            "204": {"description": "Book deleted"},
-                            "404": {"description": "Book not found"},
-                        },
-                    },
-                },
-            },
-            "components": {
-                "schemas": {
-                    "Book": {
-                        "type": "object",
-                        "properties": {
-                            "id": {"type": "integer"},
-                            "title": {"type": "string"},
-                            "author": {"type": "string"},
-                            "year": {"type": "integer"},
-                            "isbn": {"type": "string"},
-                        },
-                        "required": ["id", "title", "author", "year", "isbn"],
-                    },
-                    "BookCreate": {
-                        "type": "object",
-                        "properties": {
-                            "title": {"type": "string"},
-                            "author": {"type": "string"},
-                            "year": {"type": "integer"},
-                            "isbn": {"type": "string"},
-                        },
-                        "required": ["title", "author", "year", "isbn"],
-                    },
-                }
-            },
-        }
-        return jsonify(spec)
+        return jsonify(build_spec(title="Books API", version=__version__))
 
-    # Simple Swagger UI using CDN
     @app.get("/docs")
     def docs():
-        html = """
+        return """
         <!DOCTYPE html>
         <html>
         <head>
@@ -284,12 +98,11 @@ def create_app(config_class=DevConfig) -> Flask:
         </body>
         </html>
         """
-        return html
 
-    # -----------------------------------------------------------------
-    # Error handlers — one consistent envelope for every 4xx/5xx response:
+    # ------------------------------------------------------------------
+    # Error handlers — one consistent envelope:
     #   {"error", "message", "code", "path", "details" (optional)}
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def _envelope(status_code, message, details=None):
         try:
@@ -328,7 +141,7 @@ def create_app(config_class=DevConfig) -> Flask:
             if "ctx" in e and isinstance(e["ctx"], dict):
                 entry["ctx"] = {k: str(v) for k, v in e["ctx"].items()}
             clean.append(entry)
-        return _envelope(400, message, details=clean)
+        return _envelope(422, message, details=clean)
 
     @app.errorhandler(DomainError)
     def handle_domain_error(err: DomainError):

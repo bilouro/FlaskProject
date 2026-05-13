@@ -84,6 +84,8 @@ def _book_to_dict(book: Book) -> Dict[str, Any]:
         "year": book.year,
         "isbn": book.isbn,
         "status": book.status,
+        "created_at": book.created_at,
+        "updated_at": book.updated_at,
     }
 
 

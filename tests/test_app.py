@@ -43,7 +43,9 @@ def test_health_ok(client):
     resp = client.get("/health")
     assert resp.status_code == 200
     data = resp.get_json()
-    assert data == {"status": "ok", "database": "ok"}
+    assert data["status"] == "ok"
+    assert data["database"] == "ok"
+    assert "version" in data
 
 
 def test_health_db_error(client):
@@ -51,7 +53,18 @@ def test_health_db_error(client):
     with patch("app.books_repository.get_engine", side_effect=RuntimeError("boom")):
         resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.get_json() == {"status": "ok", "database": "error"}
+    data = resp.get_json()
+    assert data["status"] == "ok"
+    assert data["database"] == "error"
+
+
+def test_root_returns_api_index(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["name"] == "Books API"
+    assert data["api"] == "/v1"
+    assert "version" in data
 
 
 # ---------------------------------------------------------------------------
@@ -62,13 +75,17 @@ def test_swagger_spec(client):
     resp = client.get("/swagger.json")
     assert resp.status_code == 200
     spec = resp.get_json()
-    assert spec["openapi"] == "3.0.0"
+    assert spec["openapi"].startswith("3.")
     assert spec["info"]["title"] == "Books API"
     # Sanity-check that all expected paths/methods are declared
     assert set(spec["paths"].keys()) == {"/health", "/v1/books/", "/v1/books/{id}"}
     assert set(spec["paths"]["/v1/books/{id}"].keys()) == {"get", "put", "patch", "delete"}
-    assert "Book" in spec["components"]["schemas"]
-    assert "BookCreate" in spec["components"]["schemas"]
+    # Component schemas are auto-derived from Pydantic models
+    expected_schemas = {"BookCreate", "BookReplace", "BookPatch", "BookOut", "ErrorEnvelope"}
+    assert expected_schemas <= set(spec["components"]["schemas"].keys())
+    # BookOut surfaces the timestamps and status
+    book_out_props = set(spec["components"]["schemas"]["BookOut"]["properties"].keys())
+    assert {"id", "title", "author", "year", "isbn", "status", "created_at", "updated_at"} <= book_out_props
 
 
 def test_docs_returns_swagger_ui(client):
@@ -154,9 +171,9 @@ def test_validation_error_envelope_has_details(client, empty_db):
         "/v1/books/",
         json={"title": "t", "author": "a", "year": "not-an-int", "isbn": "X"},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 422
     data = resp.get_json()
-    assert data["code"] == 400
+    assert data["code"] == 422
     assert "year" in data["message"]
     assert isinstance(data["details"], list)
     assert any("year" in str(d.get("loc", "")) for d in data["details"])

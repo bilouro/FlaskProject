@@ -93,19 +93,19 @@ def test_create_book_non_object_json_returns_400(client):
     assert "JSON object" in resp.get_json()["message"]
 
 
-def test_create_book_unknown_field_returns_400(client):
+def test_create_book_unknown_field_returns_422(client):
     payload = {"title": "T", "author": "A", "year": 2020, "isbn": "X", "bogus": 1}
     resp = _post(client, payload)
-    assert resp.status_code == 400
+    assert resp.status_code == 422
     body = resp.get_json()
     assert "bogus" in body["message"]
     assert any("bogus" in str(d.get("loc", "")) for d in body["details"])
 
 
-def test_create_book_missing_required_returns_400(client):
+def test_create_book_missing_required_returns_422(client):
     payload = {"title": "T", "author": "A", "year": 2020}  # no isbn
     resp = _post(client, payload)
-    assert resp.status_code == 400
+    assert resp.status_code == 422
     body = resp.get_json()
     assert "isbn" in body["message"]
 
@@ -113,7 +113,7 @@ def test_create_book_missing_required_returns_400(client):
 def test_create_book_year_must_be_integer(client):
     payload = {"title": "T", "author": "A", "year": "2020", "isbn": "X"}
     resp = _post(client, payload)
-    assert resp.status_code == 400
+    assert resp.status_code == 422
     assert "year" in resp.get_json()["message"]
 
 
@@ -122,7 +122,7 @@ def test_create_book_string_fields_must_be_strings(client, field):
     payload = {"title": "T", "author": "A", "year": 2020, "isbn": "X"}
     payload[field] = 123
     resp = _post(client, payload)
-    assert resp.status_code == 400
+    assert resp.status_code == 422
     assert field in resp.get_json()["message"]
 
 
@@ -175,10 +175,10 @@ def test_patch_book_success(client, seeded_db):
     assert resp.get_json()["year"] == 2020
 
 
-def test_patch_book_empty_body_returns_400(client, seeded_db):
+def test_patch_book_empty_body_returns_422(client, seeded_db):
     book_id = seeded_db[0]
     resp = client.patch(f"/v1/books/{book_id}", json={})
-    assert resp.status_code == 400
+    assert resp.status_code == 422
     assert "At least one field" in resp.get_json()["message"]
 
 
