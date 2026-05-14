@@ -1,0 +1,82 @@
+# Side-by-side benchmark stack (Flask repo copy).
+#
+# Spins up one Postgres, one Flask container, one FastAPI container — all
+# bound to the same host with equal CPU budgets — so k6 can drive both APIs
+# against an identical data layer and we compare framework/runtime cost
+# (not infra).
+#
+# Build context for each API points at the sibling repo on disk:
+#   ..                       →  Flask container   (this repo)
+#   ../../FastAPIProject     →  FastAPI container
+#
+# Run:  docker compose -f benchmark/docker-compose-bench.yml up --build -d
+# Tear: docker compose -f benchmark/docker-compose-bench.yml down -v
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bench_user
+      POSTGRES_PASSWORD: bench_pass
+      POSTGRES_DB: bench_db
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bench_user -d bench_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: "1G"
+
+  flask:
+    build:
+      context: ..
+    depends_on:
+      fastapi:
+        condition: service_started
+    environment:
+      APP_DB_HOST: db
+      APP_DB_PORT: 5432
+      APP_DB_NAME: bench_db
+      APP_DB_USER: bench_user
+      APP_DB_PASSWORD: bench_pass
+    ports:
+      - "5001:5001"
+    # Production-shaped: gunicorn 4w/4t for parity with FastAPI uvicorn 4w.
+    # Schema is owned by the fastapi service (which runs alembic on start);
+    # flask reuses the same `books` table — identical model on both sides.
+    command: sh -c "pip install gunicorn==23.0.0 && gunicorn -w 4 --threads 4 -b 0.0.0.0:5001 app:app --log-level warning"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: "1G"
+
+  fastapi:
+    build:
+      context: ../../FastAPIProject
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_DB_HOST: db
+      APP_DB_PORT: 5432
+      APP_DB_NAME: bench_db
+      APP_DB_USER: bench_user
+      APP_DB_PASSWORD: bench_pass
+      APP_LOG_LEVEL: WARNING
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+                                  --log-level warning"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: "1G"

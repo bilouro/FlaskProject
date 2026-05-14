@@ -1,554 +1,525 @@
-# Books API (FlaskProject)
+<div align="center">
 
-Before using or modifying this backend, it is important to understand the problem it solves and the main architectural choices. This avoids treating it as a black box and makes extensions and refactors much safer.
+# Books API — Flask edition
 
-This repository implements a **RESTful Books API** using **Python** and **Flask**, backed by a **PostgreSQL** database and managed via **Alembic** migrations. The design emphasizes:
+**A reference-grade, modern Flask REST API — built with SQLAlchemy 2, Pydantic v2, and Alembic.**
 
-- A clear separation between:
-  - HTTP layer (Flask routes/blueprints),
-  - data-access layer (repository),
-  - persistence layer (SQLAlchemy models).
-- Explicit configuration per environment (Dev, Test, Prod).
-- Database schema evolution via migrations.
-- API documentation via OpenAPI/Swagger.
-- JSON error handling with a consistent structure.
-- Automated tests (unit + functional).
+[![Python](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-3776ab?logo=python&logoColor=white)](https://www.python.org/)
+[![Flask](https://img.shields.io/badge/Flask-3.x-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-d71f00)](https://www.sqlalchemy.org/)
+[![Pydantic](https://img.shields.io/badge/Pydantic-v2-e92063)](https://docs.pydantic.dev/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-60%20passing-brightgreen)](#testing)
+[![License: BSD-2-Clause](https://img.shields.io/badge/license-BSD--2--Clause-blue.svg)](LICENSE)
 
-The core domain entity is the `Book`, managed via CRUD endpoints under `/books`. The application also exposes a health check endpoint and embedded API docs.
+[Quickstart](#quickstart) ·
+[API Reference](#api-reference) ·
+[Architecture](#architecture) ·
+[Configuration](#configuration) ·
+[Testing](#testing) ·
+[Benchmark vs FastAPI](#benchmark-vs-fastapi) ·
+[Roadmap](#roadmap)
+
+</div>
+
+> **Mirror project:** [`bilouro/FastAPIProject`](https://github.com/bilouro/FastAPIProject) — same domain, same contract, same tests philosophy, rebuilt around async. Use the [benchmark harness](#benchmark-vs-fastapi) in this repo to compare both side by side under controlled load.
+
+---
+
+## Overview
+
+**Books API (Flask edition)** is a small, opinionated CRUD service that shows what an *idiomatic, production-shaped* Flask project looks like in 2026 — long after Flask stopped being trendy and became the workhorse.
+
+Every choice is intentional: a clean separation of HTTP / domain / data layers, strict typing at every boundary via Pydantic v2, real Alembic migrations, JSON-structured logs, an OpenAPI spec generated from the schemas, and a hermetic test suite that runs in under a second at **100 % branch coverage**.
+
+### Why this exists
+
+- Show that Flask, in 2026, can deliver the same quality bar as the async crowd — when you bring SQLAlchemy 2, Pydantic v2, and proper layering to the table.
+- Provide a copy-pasteable foundation for new services: app factory, settings, logging, error envelope, repository pattern, tests — all wired up.
+- Form one half of a side-by-side benchmark against [its FastAPI twin](#benchmark-vs-fastapi).
+
+### What you get
+
+- Idiomatic Flask 3 with an **application factory** (`create_app`) and blueprints.
+- **SQLAlchemy 2** ORM with typed declarative mapping (`Mapped[T]`) and `psycopg2`.
+- **Pydantic v2** request schemas with `extra="forbid"` and strict types.
+- **Pydantic-settings** for typed config (no `os.getenv` scattered across files; required secrets refuse to start the app).
+- One unified **error envelope** (RFC 9457-style) across `4xx` / `5xx`.
+- **OpenAPI 3.1 spec** generated automatically from the Pydantic schemas — no hand-rolled JSON drifting from code.
+- **Structured JSON logging** ready for any log shipper.
+- A **Wagtail-grade test suite**: 60 tests, **100 % branch coverage**, no DB mocks, no external services.
+- A `Dockerfile`, a `docker-compose.yml`, **and** a side-by-side benchmark harness vs FastAPI.
 
 ---
 
 ## Table of Contents
 
-Listing the sections up front makes the README easy to scan and helps you jump straight to what you need (installation, usage, tests, contributions, etc.).
-
-1. [Project Overview](#project-overview)  
-2. [Project Structure](#project-structure)  
-3. [Technology Stack & Rationale](#technology-stack--rationale)  
-4. [Prerequisites](#prerequisites)  
-5. [Configuration](#configuration)  
-6. [Installation](#installation)  
-7. [Database Setup & Migrations](#database-setup--migrations)  
-8. [Running the Application](#running-the-application)  
-9. [API Usage & Examples](#api-usage--examples)  
-10. [Testing](#testing)  
-11. [Contributing](#contributing)  
-12. [License](#license)  
-13. [Contact & References](#contact--references)
-
----
-
-## Project Overview
-
-Before focusing on the implementation details, it helps to clarify the functional scope and the data model. This provides context for the routes, repository functions, and SQLAlchemy models.
-
-- **Domain object:** `Book`
-  - `id`: integer primary key (auto-increment).
-  - `title`: string, required.
-  - `author`: string, required.
-  - `year`: integer, required.
-  - `isbn`: string, required, unique.
-  - `created_at`: timestamp (set on insert).
-  - `updated_at`: timestamp (set on update).
-  - `status`: string with default `"active"`.
-
-- **Main capabilities:**
-  - List, retrieve, create, replace, partially update, and delete books via `/books` endpoints.
-  - Validate incoming JSON payloads and allowed fields before calling the repository layer.
-  - Monitor basic application and database health via `/health`.
-  - Explore and inspect API endpoints via Swagger UI at `/docs`, backed by `/swagger.json`.
-  - Apply database schema changes declaratively using Alembic migrations.
-  - Run automated tests to prevent regressions during changes.
+- [Overview](#overview)
+- [Quickstart](#quickstart)
+- [Architecture](#architecture)
+- [Project Layout](#project-layout)
+- [API Reference](#api-reference)
+- [Error Envelope](#error-envelope)
+- [Configuration](#configuration)
+- [Database & Migrations](#database--migrations)
+- [Testing](#testing)
+- [Observability](#observability)
+- [Benchmark vs FastAPI](#benchmark-vs-fastapi)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [Security](#security)
+- [FAQ](#faq)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
 
 ---
 
-## Project Structure
+## Quickstart
 
-Knowing the directory layout in advance helps you quickly find where to add new endpoints, models, migrations, or tests, and avoids mixing concerns.
+### One-liner (Docker Compose)
 
-The repository is organized as follows:
+```bash
+git clone https://github.com/bilouro/FlaskProject.git
+cd FlaskProject
+docker compose -f docker_compose_flask_postgresql.yml up --build
+```
 
-    FlaskProject
-    books
-        __init__.py
-        models.py
-        repository.py
-        routes.py
-    migrations
-        versions
-            4fb6da201c1f_create_books_table.py
-            8c6a44c5fe32_add_metadata_fields_to_books.py
-        env.py
-        script.py.mako
-    static
-    templates
-    tests
-        test_app.py
-        test_functional_app.py
-    alembic.ini
-    app.py
-    config.py
-    db.py
-    dbfixtures.sql
-    README.md
+Wait a few seconds, then:
 
-Key elements:
+```bash
+curl http://localhost:5001/health
+# {"status":"ok","database":"ok","version":"1.0.0"}
+```
 
-- `app.py`  
-  Defines the **application factory** `create_app`, registers the `books` blueprint, configures error handlers, and exposes utility endpoints (`/health`, `/swagger.json`, `/docs`). It also defines a global `app` instance for direct execution with `python app.py`.
+Open Swagger UI: <http://localhost:5001/docs>
 
-- `config.py`  
-  Centralized configuration:
-  - `BaseConfig`: shared defaults (e.g., DB connection string).
-  - `DevConfig`: development-friendly (e.g., `DEBUG = True`).
-  - `TestConfig`: test-oriented (e.g., `TESTING = True`).
-  - `ProdConfig`: production-safe defaults.
+### Local development (no Docker)
 
-- `db.py`  
-  Encapsulates low-level DB connection handling (e.g., `get_connection()`), so routes do not need to know connection details.
+```bash
+git clone https://github.com/bilouro/FlaskProject.git
+cd FlaskProject
 
-- `books/models.py`  
-  Contains the SQLAlchemy `Base` and the `Book` model definition, mapping Python attributes to database columns.
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
-- `books/repository.py`  
-  Implements the data-access logic (CRUD operations) for books. By routing all DB operations through this module, you keep business logic out of the HTTP layer and make the code easier to test.
+cp .env.example .env                 # edit APP_DB_PASSWORD etc.
 
-- `books/routes.py`  
-  Contains the Flask blueprint with all `/books` endpoints and helper functions for:
-  - JSON body requirements (`_require_json_object`).
-  - Field validation and type checking (`_validate_fields`).
+alembic upgrade head
+python app.py
+```
 
-- `migrations/` and `alembic.ini`  
-  Provide Alembic configuration and versioned migration scripts to manage the evolution of the `books` table and its metadata columns.
+That's it. Visit:
 
-- `tests/`  
-  Includes automated tests for app behavior and endpoints:
-  - `test_app.py`: usually more unit-style tests for Flask-level behavior.
-  - `test_functional_app.py`: more functional/integration style.
-
-- `dbfixtures.sql`  
-  Optional SQL script to seed the database with example data, making local development and manual testing easier.
+| URL                                           | What it serves                   |
+| --------------------------------------------- | -------------------------------- |
+| <http://localhost:5001>                       | Service index (JSON)             |
+| <http://localhost:5001/v1/books>              | Books resource                   |
+| <http://localhost:5001/health>                | Liveness + DB readiness probe    |
+| <http://localhost:5001/docs>                  | Swagger UI                       |
+| <http://localhost:5001/swagger.json>          | OpenAPI 3.1 schema (auto-built)  |
 
 ---
 
-## Technology Stack & Rationale
+## Architecture
 
-Understanding why each tool is used helps you judge whether the stack fits your needs and informs future technical decisions.
+```
+                ┌──────────────────────────────────────────┐
+                │            WSGI server (gunicorn)        │
+                └────────────────────┬─────────────────────┘
+                                     │
+                ┌────────────────────▼─────────────────────┐
+                │              Flask app                   │
+                │  · error handlers · X-Response-Time      │
+                │  · app factory · blueprints              │
+                └────────────────────┬─────────────────────┘
+                                     │
+      ┌──────────────────────────────┼──────────────────────────────┐
+      │                              │                              │
+┌─────▼──────┐         ┌─────────────▼─────────────┐        ┌───────▼────────┐
+│ /v1/books  │         │     /health · /docs       │        │ /swagger.json  │
+│ Blueprint  │         │     · /v1/sleep · /       │        │ (Pydantic gen) │
+└─────┬──────┘         └───────────────────────────┘        └────────────────┘
+      │
+┌─────▼──────────────────────────────────────────────────────┐
+│ Pydantic v2 schemas  (BookCreate / BookReplace / BookPatch)│
+│  · extra="forbid"    · strict=True       · model_validator │
+└─────┬──────────────────────────────────────────────────────┘
+      │
+┌─────▼──────────────────────────────────────────────────────┐
+│             books.repository  (typed domain errors)        │
+│  list_books · get_book · create_book · replace_book        │
+│  · update_book · delete_book                               │
+└─────┬──────────────────────────────────────────────────────┘
+      │
+┌─────▼──────────────────────────────────────────────────────┐
+│    SQLAlchemy 2  Session  ──►  psycopg2  ──►  PostgreSQL 16│
+└────────────────────────────────────────────────────────────┘
+```
 
-- **Python 3.x**  
-  Offers mature ecosystem support for web services and testing. Type hints (as seen in the models and routes) improve maintainability and tooling support.
+### Request lifecycle
 
-- **Flask**  
-  Provides a lightweight, extensible web framework ideal for small to medium APIs. The blueprint structure in `books/routes.py` demonstrates how to keep functionality modular.
+1. **gunicorn** terminates HTTP and hands the WSGI environ to Flask.
+2. The blueprint resolves the path to a route function.
+3. The route calls `BookCreate.model_validate(request.json)` (or sibling) — Pydantic raises on bad input.
+4. The route delegates to `books.repository`, which speaks SQLAlchemy 2 to `psycopg2`.
+5. Domain exceptions (`BookNotFoundError`, `DuplicateISBNError`) and `ValidationError` are converted to a unified JSON envelope by `@app.errorhandler` registrations in `app.py`.
+6. An `after_request` middleware adds `X-Response-Time` header (ms) on every response.
 
-- **PostgreSQL**  
-  A reliable, feature-rich relational database well suited for structured data and transactional operations. It is a de-facto standard in many production systems.
+### Layering rules
 
-- **SQLAlchemy (ORM)**  
-  Abstracts raw SQL, providing a Pythonic interface for defining models (`Book`) and handling DB operations. It also integrates well with Alembic for migrations.
-
-- **Alembic**  
-  Manages database schema history. Migration scripts (e.g., `create_books_table`, `add_metadata_fields_to_books`) document how the schema evolved and can be replayed on new environments.
-
-- **pytest**  
-  A flexible, expressive testing framework. It encourages small, focused tests and integrates well with fixtures, making it straightforward to test Flask applications.
-
-- **Swagger UI / OpenAPI**  
-  Having `/swagger.json` and `/docs` makes the API self-describing and easier to explore, and it helps consumers generate clients automatically if needed.
+- **Blueprints** never touch SQL. They orchestrate Pydantic ↔ repository.
+- **Repository** never raises framework exceptions. Domain failures become `DomainError` subclasses.
+- **Schemas** are the only place data shapes are declared. ORM models stay private to the persistence layer.
+- **Settings** are read once at startup; cached via `lru_cache`.
 
 ---
 
-## Prerequisites
+## Project Layout
 
-Before running any commands, it is important to verify that your environment has the required tools. This prevents errors that originate from missing interpreters, missing compilers, or incompatible versions.
+```
+.
+├── app.py                            # Flask factory, error handlers, /health, /, middleware
+├── config.py                         # pydantic-settings + Flask config classes
+├── openapi.py                        # OpenAPI 3.1 spec built from Pydantic schemas
+├── logging_config.py                 # structured JSON logging
+├── books/
+│   ├── __init__.py
+│   ├── models.py                     # SQLAlchemy 2.x Book ORM model
+│   ├── schemas.py                    # Pydantic v2 request / response models
+│   ├── repository.py                 # CRUD with typed errors, lazy engine
+│   ├── routes.py                     # /v1/books blueprint
+│   ├── exceptions.py                 # DomainError + subclasses
+│   └── sleep.py                      # /v1/sleep benchmark endpoint
+├── migrations/                       # Alembic
+│   ├── env.py
+│   └── versions/
+│       └── 4fb6da201c1f_create_books_table.py
+├── tests/                            # 60 tests, 100 % coverage
+│   ├── conftest.py                   # Flask test_client + in-memory SQLite
+│   ├── test_app.py · test_routes.py
+│   ├── test_repository.py · test_coverage_extras.py
+│   └── test_functional_app.py
+├── benchmark/                        # k6 harness vs FastAPI (see below)
+├── alembic.ini
+├── Dockerfile
+├── docker_compose_flask_postgresql.yml
+├── dbfixtures.sql
+├── pyproject.toml                    # pytest, coverage
+├── requirements.txt
+├── .env.example
+└── LICENSE
+```
 
-You will need:
+---
 
-- **Python 3.10+**  
-  Newer Python versions help ensure compatibility with modern Flask and SQLAlchemy releases.
+## API Reference
 
-- **PostgreSQL** (local or remote)  
-  Required for persistence:
-  - You need a running PostgreSQL instance.
-  - You need credentials that match or override the defaults in `config.py`.
+All resource endpoints live under the **`/v1`** prefix. Cross-cutting endpoints (`/health`, `/docs`, ...) stay at the root.
 
-- **Virtual environment tool** (`python -m venv`, `virtualenv`, etc.)  
-  Isolates project dependencies from your global Python environment, avoiding version conflicts and making the setup reproducible.
+| Method   | Path                | Body            | Success | Failure                                       |
+| -------- | ------------------- | --------------- | ------- | --------------------------------------------- |
+| `GET`    | `/health`           | —               | `200`   | always 200; DB state in `database` field      |
+| `GET`    | `/v1/books`         | —               | `200`   | —                                             |
+| `GET`    | `/v1/books/{id}`    | —               | `200`   | `404`                                         |
+| `POST`   | `/v1/books`         | `BookCreate`    | `201`   | `422` (validation), `409` (duplicate ISBN)    |
+| `PUT`    | `/v1/books/{id}`    | `BookReplace`   | `200`   | `404`, `422`, `409`                           |
+| `PATCH`  | `/v1/books/{id}`    | `BookPatch`     | `200`   | `404`, `422` (no fields / unknown field)      |
+| `DELETE` | `/v1/books/{id}`    | —               | `204`   | `404`                                         |
+| `GET`    | `/v1/sleep?ms=N`    | —               | `200`   | benchmark helper (issues `pg_sleep(N/1000)`)  |
 
-- **Git** (recommended)  
-  Facilitates cloning the project and collaborating via branches and pull requests.
+### Resource schema
+
+```jsonc
+{
+  "id":         42,                       // int, server-assigned
+  "title":      "1984",                   // string, required, 1..255
+  "author":     "George Orwell",          // string, required, 1..255
+  "year":       1949,                     // int, required, -3000..9999
+  "isbn":       "978-0451524935",         // string, required, 1..32, unique
+  "status":     "active",                 // string, default "active"
+  "created_at": "2026-05-12T22:58:00Z",   // server-managed
+  "updated_at": "2026-05-12T22:58:00Z"    // server-managed
+}
+```
+
+### Examples
+
+```bash
+# Create
+curl -X POST http://localhost:5001/v1/books \
+  -H 'content-type: application/json' \
+  -d '{"title":"1984","author":"George Orwell","year":1949,"isbn":"978-0451524935"}'
+
+# List
+curl http://localhost:5001/v1/books
+
+# Partial update
+curl -X PATCH http://localhost:5001/v1/books/1 \
+  -H 'content-type: application/json' \
+  -d '{"status":"archived"}'
+
+# Replace
+curl -X PUT http://localhost:5001/v1/books/1 \
+  -H 'content-type: application/json' \
+  -d '{"title":"1984","author":"George Orwell","year":1949,"isbn":"978-0451524935"}'
+
+# Delete
+curl -X DELETE http://localhost:5001/v1/books/1 -i
+```
+
+---
+
+## Error Envelope
+
+Every non-2xx response shares a single shape, inspired by [RFC 9457 (Problem Details for HTTP APIs)](https://www.rfc-editor.org/rfc/rfc9457.html):
+
+```json
+{
+  "error":   "Not Found",
+  "message": "Book not found",
+  "code":    404,
+  "path":    "/v1/books/999"
+}
+```
+
+Validation failures (HTTP 422) include a `details` list of structured field errors from Pydantic:
+
+```json
+{
+  "error":   "Unprocessable Content",
+  "message": "isbn: Field required",
+  "code":    422,
+  "path":    "/v1/books",
+  "details": [
+    { "type": "missing", "loc": ["isbn"], "msg": "Field required", "input": {} }
+  ]
+}
+```
+
+The same envelope is produced for `404` (unknown route), `405`, `409` (duplicate ISBN), `415`, and unhandled `500` errors — clients only ever parse one shape.
 
 ---
 
 ## Configuration
 
-Before starting the app, you should understand how configuration works and how to influence it via environment variables. This allows you to separate code from environment-specific settings (credentials, hosts, ports).
+All settings come from environment variables (prefixed `APP_`) and/or a `.env` file. See [`.env.example`](.env.example).
 
-The `BaseConfig` class in `config.py` reads database-related environment variables and constructs a PostgreSQL DSN:
+| Variable              | Default       | Purpose                                    |
+| --------------------- | ------------- | ------------------------------------------ |
+| `APP_ENV`             | `dev`         | One of `dev` · `test` · `prod`             |
+| `APP_DB_HOST`         | `127.0.0.1`   | Postgres host                              |
+| `APP_DB_PORT`         | `5432`        | Postgres port                              |
+| `APP_DB_NAME`         | `app_db`      | Postgres database                          |
+| `APP_DB_USER`         | `app_user`    | Postgres user                              |
+| `APP_DB_PASSWORD`     | _(required)_  | Postgres password — refuses to start if unset |
+| `APP_DATABASE_URL`    | _(unset)_     | Full override DSN (skips per-var assembly) |
 
-- `APP_DB_HOST` (default `127.0.0.1`)
-- `APP_DB_PORT` (default `5432`)
-- `APP_DB_NAME` (default `app_db`)
-- `APP_DB_USER` (default `app_user`)
-- `APP_DB_PASSWORD` (default `bsd0030`)
+The DSN is computed as:
 
-They are combined into:
+```
+postgresql+psycopg2://<user>:<password>@<host>:<port>/<name>
+```
 
-    SQLALCHEMY_DATABASE_URI = (
-        f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    )
-
-To actually configure the environment for a local development run, you typically export these variables in your shell before launching the app. This pattern provides flexibility and keeps secrets out of source code.
-
-Here is how you might set them for a development environment:
-
-    export APP_DB_HOST="127.0.0.1"
-    export APP_DB_PORT="5432"
-    export APP_DB_NAME="app_db"
-    export APP_DB_USER="app_user"
-    export APP_DB_PASSWORD="bsd0030"
-
-You can override these values to point to any PostgreSQL instance you control. In production, these values should be more secure and defined by your deployment platform (e.g., Docker secrets, Kubernetes config, etc.).
+Unless `APP_DATABASE_URL` is set, in which case that value wins.
 
 ---
 
-## Installation
+## Database & Migrations
 
-Before running the application or tests, you need a local copy of the project and a proper Python environment containing all required packages. The steps below isolate dependencies and give you a reproducible setup.
+```bash
+# Apply all migrations
+alembic upgrade head
 
-The process is:
+# Create a new revision after model changes
+alembic revision --autogenerate -m "describe change"
 
-1. Get the project code on your machine.
-2. Create and activate a virtual environment.
-3. Install dependencies listed in `requirements.txt`.
+# Roll back the most recent migration
+alembic downgrade -1
 
-After that explanation, you can execute the following commands from a terminal:
+# Seed sample data
+psql -h "$APP_DB_HOST" -U "$APP_DB_USER" -d "$APP_DB_NAME" -f dbfixtures.sql
+```
 
-    # 1. Clone the repository (replace with the actual URL)
-    git clone <YOUR_REPOSITORY_URL> FlaskProject
-    cd FlaskProject
-
-    # 2. Create a virtual environment dedicated to this project
-    python3 -m venv venv
-
-    # 3. Activate the virtual environment
-    # On macOS/Linux:
-    source venv/bin/activate
-    # On Windows (PowerShell):
-    # venv\Scripts\Activate.ps1
-
-    # 4. Upgrade pip and install dependencies
-    pip install --upgrade pip
-    pip install -r requirements.txt
-
-Once this finishes, your environment is ready for DB setup and application execution.
-
----
-
-## Database Setup & Migrations
-
-Before the API can work with books, the database schema must exist. Instead of manually creating tables, this project uses Alembic migrations so that the schema is versioned and consistent across machines.
-
-The high-level steps are:
-
-1. Ensure that the PostgreSQL user and database exist.
-2. Run Alembic migrations to apply the schema changes.
-3. (Optional) Seed the database with fixture data.
-
-Once you understand why this is necessary, you can use commands like the following to set up the database:
-
-    # 1. Create the database user and database using psql (example; adapt to your environment)
-    # This assumes you have a 'postgres' superuser or equivalent.
-    psql -h 127.0.0.1 -U postgres -c "CREATE USER app_user WITH PASSWORD 'bsd0030';"
-    psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE app_db OWNER app_user;"
-
-    # 2. Apply all Alembic migrations from the project root
-    alembic upgrade head
-
-    # 3. (Optional) Load fixture data from dbfixtures.sql for development/testing
-    psql -h "$APP_DB_HOST" -U "$APP_DB_USER" -d "$APP_DB_NAME" -f dbfixtures.sql
-
-After these steps, your `books` table should exist with the appropriate columns (`id`, `title`, `author`, `year`, `isbn`, `created_at`, `updated_at`, `status`), and you can start interacting with the API.
-
----
-
-## Running the Application
-
-To serve requests, you need to start the Flask application. The project uses the application factory pattern, which allows easy switching of configuration classes, but also provides a simple entry point for development execution.
-
-Key points:
-
-- `create_app(config_class=DevConfig)` in `app.py` constructs and configures the Flask app.
-- A global `app` instance is created at the bottom of `app.py` for convenience.
-- When you run `python app.py`, Flask’s built-in development server starts on port 5001.
-
-With that in mind, and assuming your virtual environment is active and DB is configured, you can run:
-
-    # From the project root, with venv activated
-    python app.py
-
-By default, the app will listen on:
-
-    http://127.0.0.1:5001
-
-Useful endpoints to verify that the app is running correctly:
-
-- `GET /health` – App + DB health check.
-- `GET /books/` – List of books.
-- `GET /swagger.json` – Raw OpenAPI schema.
-- `GET /docs` – Swagger UI (interactive docs).
-
----
-
-## API Usage & Examples
-
-Before sending HTTP requests, it is crucial to know how the API expects data and how it reports errors. This allows you to construct correct payloads and interpret responses programmatically.
-
-General rules:
-
-- All book-related endpoints live under `/books`.
-- JSON requests must use header: `Content-Type: application/json`.
-- The allowed fields are: `title`, `author`, `year`, `isbn`.
-- Validation in `books.routes`:
-  - Rejects non-JSON or non-object payloads.
-  - Rejects unknown fields.
-  - Requires all fields for `POST` and `PUT`.
-  - Requires at least one field for `PATCH`.
-  - Checks types (`year` as integer, others as strings).
-- Errors return JSON structured like:
-
-      {
-        "error": "Bad Request",
-        "message": "Field 'year' must be an integer",
-        "code": 400
-      }
-
-The examples below use `curl` because it is ubiquitous and easy to script. You can translate these into Postman collections, HTTPie commands, or any other HTTP client.
-
-Assume the app is running at `http://127.0.0.1:5001`.
-
-### Health Check
-
-The health endpoint confirms two things: the app is running and basic DB connectivity works. This is commonly used for monitoring and readiness/liveness probes.
-
-    curl -i http://127.0.0.1:5001/health
-
-A successful response looks like:
-
-    {
-      "status": "ok",
-      "database": "ok"
-    }
-
-If the database cannot be reached, `"database"` will be `"error"`.
-
-### List All Books
-
-Listing books is a simple way to verify that the DB is populated and that the repository layer is functioning.
-
-    curl -i http://127.0.0.1:5001/books/
-
-Example response (truncated):
-
-    [
-      {
-        "id": 1,
-        "title": "Clean Code",
-        "author": "Robert C. Martin",
-        "year": 2008,
-        "isbn": "9780132350884"
-      }
-    ]
-
-### Retrieve a Single Book
-
-Fetching a book by ID allows you to check a specific record and validate that individual retrieval works as expected.
-
-    curl -i http://127.0.0.1:5001/books/1
-
-If the book exists, you get a JSON object. If not, you receive a 404 error:
-
-    {
-      "error": "Not Found",
-      "message": "Book not found",
-      "code": 404
-    }
-
-### Create a New Book (POST)
-
-Creating books demonstrates how request validation works and how new records are persisted. All fields are required here.
-
-    curl -i -X POST http://127.0.0.1:5001/books/ \
-      -H "Content-Type: application/json" \
-      -d '{
-        "title": "Domain-Driven Design",
-        "author": "Eric Evans",
-        "year": 2003,
-        "isbn": "9780321125217"
-      }'
-
-On success, you should receive:
-
-- HTTP status `201 Created`.
-- A JSON body containing the created book including its `id`.
-
-If you omit a required field or use an incorrect type, you will receive a 400 error with a specific message describing the problem.
-
-### Replace an Existing Book (PUT)
-
-Using PUT shows how to **replace** an existing resource entirely. This requires sending all fields, not just the ones you want to change.
-
-    curl -i -X PUT http://127.0.0.1:5001/books/1 \
-      -H "Content-Type: application/json" \
-      -d '{
-        "title": "Domain-Driven Design (Updated Edition)",
-        "author": "Eric Evans",
-        "year": 2003,
-        "isbn": "9780321125217"
-      }'
-
-If the target book does not exist, the response uses the same 404 error shape as the GET endpoint:
-
-    {
-      "error": "Not Found",
-      "message": "Book not found",
-      "code": 404
-    }
-
-### Partially Update a Book (PATCH)
-
-`PATCH` is ideal when you only want to adjust a subset of fields (for example, correcting a typo in the title). At least one valid field must be provided.
-
-    curl -i -X PATCH http://127.0.0.1:5001/books/1 \
-      -H "Content-Type: application/json" \
-      -d '{
-        "year": 2004
-      }'
-
-If you send an empty JSON object (`{}`), the API explicitly rejects it with:
-
-    {
-      "error": "Bad Request",
-      "message": "No fields to update",
-      "code": 400
-    }
-
-### Delete a Book
-
-Deletion completes the CRUD lifecycle and is often used in cleanup or administrative flows. The endpoint returns `204 No Content` to indicate success without returning a body.
-
-    curl -i -X DELETE http://127.0.0.1:5001/books/1
-
-If the specified book does not exist, you receive a 404 error with `"Book not found"`.
-
-### Swagger / OpenAPI Documentation
-
-The project also embeds its own OpenAPI schema and Swagger UI to help you and other developers explore the API interactively and generate client code.
-
-- To obtain the raw schema as JSON (useful for tooling or generating clients):
-
-      curl -i http://127.0.0.1:5001/swagger.json
-
-- To open the interactive Docs UI in a browser, navigate to:
-
-      http://127.0.0.1:5001/docs
-
-Swagger UI is loaded from a CDN and points to `/swagger.json` as the API definition.
+The Alembic environment reuses the DSN computed by `config.Settings`. There is no separate sync/async config to maintain.
 
 ---
 
 ## Testing
 
-Before pushing changes or deploying, you should run the test suite to confirm that existing behavior remains correct. Tests also serve as living documentation for expected application behavior.
+```bash
+pytest                                  # full suite + 100 % coverage gate
+pytest tests/test_routes.py -v          # one module
+pytest -k duplicate                     # by keyword
+pytest --cov-report=html                # generate htmlcov/index.html
+```
 
-The repository uses **pytest**, and tests reside in the `tests/` directory:
+### Highlights
 
-- `test_app.py`: focuses on the Flask app behavior and specific routes or handlers.
-- `test_functional_app.py`: may perform more end-to-end checks, exercising multiple layers at once.
+- **60 tests** (+ 2 functional, skipped unless a server is running) spanning config, repository, routes, error envelope, OpenAPI spec, and the benchmark helpers.
+- **100 % branch & line coverage** on `app.py`, `books/*`, `config.py`, `openapi.py`, `logging_config.py`, enforced by `--cov-fail-under=100` in `pyproject.toml`.
+- **No external services needed.** The conftest swaps `SQLALCHEMY_DATABASE_URI` for an in-memory SQLite + `StaticPool`.
+- **Flask test client + Pydantic** drive the app in-process — fast, deterministic.
 
-To run the tests, ensure your virtual environment is activated, any required test configuration is in place (e.g., test DB), and run pytest from the project root:
+```text
+$ pytest -q
+............................................................                [100%]
+TOTAL                   385      0     46      0   100%
+Required test coverage of 100% reached. Total coverage: 100.00%
+60 passed, 2 skipped in 0.21s
+```
 
-    # Run the full test suite
-    pytest
+---
 
-    # Run tests in quiet mode
-    pytest -q
+## Observability
 
-    # Run only tests matching a substring (useful when focusing on a specific area)
-    pytest -k "functional"
+`logging_config.configure_logging()` installs a JSON formatter on stdout for all loggers, including `werkzeug` and `gunicorn`:
 
-If you need an isolated test database, you can extend or adjust `TestConfig` in `config.py` to point to a different DB (e.g., using `APP_TEST_DB_NAME`). Set the appropriate environment variables before invoking `pytest`.
+```json
+{"asctime": "2026-05-12 22:58:00,000", "levelname": "INFO", "name": "app", "message": "starting app env=prod version=1.0.0"}
+```
+
+Drop this straight into Loki, CloudWatch, Datadog, or any log shipper that understands JSON lines — no parsers, no regex.
+
+Every response carries an `X-Response-Time` header (handler time, in milliseconds) for client-side latency observability — also consumed by the [benchmark harness](#benchmark-vs-fastapi).
+
+The `sqlalchemy.engine` logger is pinned at `WARNING` by default so query noise stays out of production logs.
+
+---
+
+## Benchmark vs FastAPI
+
+This repo ships a **side-by-side load benchmark** comparing this Flask service against its FastAPI twin under controlled identical conditions: same Postgres, same schema, same Docker host, equal CPU budgets.
+
+Headline finding from the I/O-fanout workload (the canonical async use case — every request triggers `pg_sleep(50ms)` server-side):
+
+| Metric | Flask (gunicorn 4w/4t) | FastAPI (uvicorn 4w) |
+|---|---:|---:|
+| Throughput (req/s) | **265** | **992** |
+| Client p50 (ms) | 905 | 226 |
+| Client p95 (ms) | 2,615 | 733 |
+
+→ **FastAPI ≈ 3.7× throughput at ~1/4 the client p50** on this workload.
+
+On read-light and mixed CRUD workloads, the gap shrinks to **7-14%**. Full results, every percentile, and per-workload analysis are in [`benchmark/RESULTS.md`](benchmark/RESULTS.md).
+
+### How to run
+
+Prereqs: Docker, `k6` (e.g. `brew install k6`), Python with `psycopg2-binary` (`pip install psycopg2-binary`), and the [FastAPIProject](https://github.com/bilouro/FastAPIProject) repo cloned **next to this one** so docker-compose can build both contexts.
+
+```bash
+# 1. Bring up Postgres + both APIs (FastAPI runs alembic; Flask reuses the same schema)
+docker compose -f benchmark/docker-compose-bench.yml up --build -d
+
+# 2. Wait until both health endpoints return 200
+curl -fsS http://localhost:5001/health && echo " flask ok"
+curl -fsS http://localhost:8000/health && echo " fastapi ok"
+
+# 3. Seed 10,000 books into Postgres (shared by both APIs)
+python benchmark/seed.py --count 10000 --reset
+
+# 4. Run the full sweep: 3 workloads × 2 APIs × 3 runs = 18 k6 invocations (~26 min)
+bash benchmark/run.sh
+
+# 5. Aggregate the 18 raw k6 JSONs into a CSV + markdown table
+python benchmark/results/aggregate.py
+
+# 6. Tear everything down
+docker compose -f benchmark/docker-compose-bench.yml down -v
+```
+
+### Workloads
+
+| Script              | Endpoint                              | Shape                                                        | Purpose                       |
+| ------------------- | ------------------------------------- | ------------------------------------------------------------ | ----------------------------- |
+| `benchmark/k6/read.js`   | `GET /v1/books/{random_id}`     | ramp **50 → 1000 VUs**, 90 s                                | Read-light, latency-bound     |
+| `benchmark/k6/mixed.js`  | 70 % GET / 25 % POST / 5 % PATCH | ramp **100 → 500 VUs**, 80 s                                | Realistic CRUD mix            |
+| `benchmark/k6/fanout.js` | `GET /v1/sleep?ms=50`           | ramp **50 → 500 VUs**, 80 s — the async-vs-sync stress test | I/O fanout (slow upstream)    |
+
+Every script reads the server's `X-Response-Time` header into a custom `server_time_ms` k6 trend so the final report distinguishes **client wall-clock** from **handler-only time**.
+
+### Hardware caveat
+
+The reference results were taken on an **Apple Silicon MacBook**, each container capped at **2 CPUs / 1 GB RAM** via `deploy.resources.limits`. Treat the numbers as a **relative comparison under controlled identical conditions**, not absolute production capacity.
+
+---
+
+## Roadmap
+
+- [x] SQLAlchemy 2 ORM with typed declarative mapping
+- [x] Strict Pydantic v2 schemas
+- [x] Repository pattern with typed domain errors
+- [x] Unified error envelope (RFC 9457-inspired)
+- [x] OpenAPI 3.1 generated from Pydantic schemas
+- [x] Structured JSON logging
+- [x] `X-Response-Time` middleware
+- [x] 100 % test coverage
+- [x] Side-by-side benchmark harness vs FastAPI
+- [x] API versioning under `/v1`
+- [ ] GitHub Actions CI (pytest + ruff)
+- [ ] Pagination (`limit` / `offset`, then keyset)
+- [ ] Filtering and full-text search on title / author
+- [ ] Authentication (OAuth2 / JWT bearer)
+- [ ] Rate limiting middleware
+- [ ] OpenTelemetry traces & metrics
+- [ ] Pre-commit hooks (ruff format + ruff check)
 
 ---
 
 ## Contributing
 
-A clear contribution workflow reduces friction and ensures that changes are easy to review, test, and merge. The following steps outline a typical Git-based contribution process:
+Issues and PRs are welcome.
 
-1. **Fork** the repository to your own account (if you do not have write access).
-2. **Create a feature branch** from the main branch, using descriptive names like `feature/add-book-search` or `fix/year-validation`.
-3. **Implement changes** while preserving the separation of concerns:
-   - HTTP/API logic in `books/routes.py`.
-   - Data-access logic in `books/repository.py`.
-   - Schema changes via new Alembic migrations in `migrations/versions`.
-   - Model updates in `books/models.py` when columns change.
-4. **Write or update tests** in `tests/` that cover your new behavior or bug fix.
-5. **Run the test suite** locally and ensure all tests pass.
-6. **Submit a Pull Request (PR)** explaining:
-   - What you changed and why.
-   - Any breaking changes or migration requirements.
-   - How reviewers can reproduce and verify your change.
+1. Fork the repo and create a feature branch from `main`.
+2. Run `pytest` and ensure coverage stays at 100 %.
+3. Open a PR with a clear description and curl examples for behavioural changes.
 
-To support that workflow, you will typically run Git commands similar to these (after making your edits and ensuring they work):
+For larger refactors, please open an issue first so we can align on scope.
 
-    # Create and switch to a new feature branch
-    git checkout -b feature/add-new-endpoint
+---
 
-    # Stage and commit changes with a meaningful message
-    git add .
-    git commit -m "Add filtering options to books list endpoint"
+## Security
 
-    # Push your branch to your fork
-    git push origin feature/add-new-endpoint
+Found a security issue? Please **do not** open a public issue. Email the maintainer (see `git log` for contact) with details and a reproduction. We'll respond within a few business days.
 
-Then you can open a PR from `feature/add-new-endpoint` into the main project branch using your Git hosting platform (e.g., GitHub, GitLab).
+Secrets are never read at import time — only inside `Settings()`, which is instantiated lazily. `APP_DB_PASSWORD` is required (no fallback) so a misconfigured deploy fails loudly instead of silently using a weak default.
 
-For code style, try to:
+---
 
-- Use clear, descriptive names for functions and variables.
-- Keep functions small and focused.
-- Add docstrings for public functions and modules when behavior is not obvious.
-- Follow any existing style or formatting conventions in the repo (e.g., if using `black` or `flake8`, run them before committing).
+## FAQ
+
+**Why Flask in 2026? Isn't FastAPI strictly better?**
+For low-concurrency CRUD, the difference is below the noise (see [benchmark](#benchmark-vs-fastapi)). Flask is mature, has a huge ecosystem of extensions, and is easier to hire for. Use the right tool — async is tooling, not a religion.
+
+**Why SQLAlchemy when SQLModel exists?**
+SQLModel is great for prototypes but conflates the ORM and the API schema. Keeping them separate (SQLAlchemy + Pydantic) costs ~20 lines and is much easier to evolve when the public contract and the database shape diverge.
+
+**Why an in-memory SQLite in tests instead of testcontainers / Postgres?**
+Suite speed and friction. The tests run in **< 1 s** and need nothing but Python. For an integration smoke against real Postgres, point `APP_DATABASE_URL` at it and start the server — that's the deployment path you're going to use anyway.
+
+**Why `pytest --cov-fail-under=100`?**
+Because "97 %" never improves. The gate forces you to either delete dead code or write the missing test before merging.
+
+**Why is OpenAPI built by hand from Pydantic instead of using `flask-smorest` / `apispec`?**
+The hand-rolled `openapi.py` is ~150 lines, has zero dependencies, and emits exactly the spec we want. We pay no plugin lock-in and the generator's behaviour is fully under our control.
 
 ---
 
 ## License
 
-This project is licensed under the BSD 2-Clause License. See the LICENSE file for details.
+[BSD 2-Clause](LICENSE) © Victor H. Bilouro.
 
 ---
 
-## Contact & References
+## Acknowledgments
 
-Having a defined contact point and list of references makes it easier for users and contributors to get help and understand the technologies under the hood.
+Built on the shoulders of:
 
-You can customize the following template:
-
-- **Maintainer:** Victor Bilouro `<python@bilouro.com>`  
-- **Issues & Support:** Use the repository’s “Issues” tab for bug reports, feature requests, and questions.
-
-Useful documentation for the technologies used:
-
-- Flask: https://flask.palletsprojects.com/  
-- SQLAlchemy ORM: https://docs.sqlalchemy.org/  
-- Alembic migrations: https://alembic.sqlalchemy.org/  
-- pytest: https://docs.pytest.org/  
-- OpenAPI Specification: https://www.openapis.org/  
-- Swagger UI: https://swagger.io/tools/swagger-ui/  
-
-By following this README and its reasoning for each command and structure, you should be able to:
-
-1. Set up the environment and database reliably.
-2. Run and explore the Books API locally.
-3. Extend the codebase in a maintainable way.
-4. Contribute changes with confidence, backed by automated tests.
+- [Flask](https://flask.palletsprojects.com/) by Armin Ronacher and contributors
+- [SQLAlchemy](https://www.sqlalchemy.org/) by Mike Bayer and contributors
+- [Pydantic](https://docs.pydantic.dev/) by Samuel Colvin and contributors
+- [psycopg](https://www.psycopg.org/) by Federico Di Gregorio
+- [Alembic](https://alembic.sqlalchemy.org/) by Mike Bayer
+- [k6](https://k6.io/) by Grafana Labs
+- The team behind [PostgreSQL](https://www.postgresql.org/)
