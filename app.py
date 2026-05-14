@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import logging
 from http import HTTPStatus
+from time import perf_counter
 
-from flask import Flask, jsonify, request
+from flask import Flask, g, jsonify, request
 from pydantic import ValidationError
 from sqlalchemy import text
 
 from books import repository as books_repository
 from books.exceptions import DomainError
 from books.routes import bp as books_bp
+from books.sleep import bp as sleep_bp
 from config import DevConfig, get_settings
 from logging_config import configure_logging
 from openapi import build_spec
@@ -37,6 +39,20 @@ def create_app(config_class=DevConfig) -> Flask:
 
     # Register blueprints under the versioned prefix.
     app.register_blueprint(books_bp, url_prefix="/v1/books")
+    app.register_blueprint(sleep_bp, url_prefix="/v1")
+
+    # Per-request server timing — emitted as X-Response-Time so the k6
+    # benchmark can compare framework time vs total wall-clock.
+    @app.before_request
+    def _t0():
+        g._t0 = perf_counter()
+
+    @app.after_request
+    def _emit_timing(response):
+        response.headers["X-Response-Time"] = (
+            f"{(perf_counter() - g._t0) * 1000:.3f}"
+        )
+        return response
 
     # ------------------------------------------------------------------
     # Meta routes

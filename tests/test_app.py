@@ -177,3 +177,65 @@ def test_validation_error_envelope_has_details(client, empty_db):
     assert "year" in data["message"]
     assert isinstance(data["details"], list)
     assert any("year" in str(d.get("loc", "")) for d in data["details"])
+
+
+# ---------------------------------------------------------------------------
+# Benchmark helpers — /v1/sleep + X-Response-Time middleware
+# ---------------------------------------------------------------------------
+
+def test_x_response_time_header_present(client):
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    assert "X-Response-Time" in resp.headers
+    assert float(resp.headers["X-Response-Time"]) >= 0
+
+
+def test_sleep_endpoint_default(client):
+    resp = client.get("/v1/sleep")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"slept_ms": 50}
+
+
+def test_sleep_endpoint_with_ms_param(client):
+    resp = client.get("/v1/sleep?ms=1")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"slept_ms": 1}
+
+
+def test_sleep_endpoint_invalid_ms_falls_back_to_default(client):
+    resp = client.get("/v1/sleep?ms=not-a-number")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"slept_ms": 50}
+
+
+def test_sleep_endpoint_negative_ms_clamped_to_zero(client):
+    resp = client.get("/v1/sleep?ms=-10")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"slept_ms": 0}
+
+
+def test_sleep_endpoint_uses_pg_sleep_on_postgres(monkeypatch):
+    """Cover the postgresql dialect branch with a faked engine."""
+    from unittest.mock import MagicMock
+
+    from books import sleep as sleep_module
+
+    fake_conn = MagicMock()
+    fake_conn.__enter__ = MagicMock(return_value=fake_conn)
+    fake_conn.__exit__ = MagicMock(return_value=False)
+    fake_engine = MagicMock()
+    fake_engine.dialect.name = "postgresql"
+    fake_engine.connect.return_value = fake_conn
+
+    monkeypatch.setattr(sleep_module.repository, "get_engine", lambda: fake_engine)
+
+    from app import create_app
+    from tests.conftest import SqliteTestConfig
+
+    flask_app = create_app(SqliteTestConfig)
+    resp = flask_app.test_client().get("/v1/sleep?ms=5")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"slept_ms": 5}
+    args, kwargs = fake_conn.execute.call_args
+    assert "pg_sleep" in str(args[0])
+    assert args[1] == {"s": 0.005}

@@ -18,6 +18,9 @@ from books.schemas import BookCreate, BookOut, BookPatch, BookReplace
 
 
 bp = Blueprint("books", __name__)
+# Accept both /v1/books and /v1/books/ — keeps client URLs flexible
+# (notably k6 benchmark scripts hit the same path against both APIs).
+bp.strict_slashes = False
 
 
 def _require_json_object() -> Dict[str, Any]:
